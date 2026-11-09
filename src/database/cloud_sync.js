@@ -1,7 +1,7 @@
 /**
  * ASCHEN EVENT ORGANIZER - Cloud State & Database Synchronizer
  * Automatically synchronizes bookings and SQLite state across Vercel serverless containers
- * using Vercel Blob.
+ * using Vercel Blob with static read-write token.
  */
 
 const fs = require('fs');
@@ -20,13 +20,15 @@ let isSyncing = false;
 let lastSyncTime = 0;
 
 async function syncFromCloud(resolvedDbPath) {
-  if (!IS_VERCEL || !blobModule || !process.env.BLOB_STORE_ID) return false;
+  if (!IS_VERCEL || !blobModule) return false;
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return false;
 
   try {
     const { list } = blobModule;
-    const { blobs } = await list({ prefix: BLOB_FILENAME, limit: 1 });
+    const { blobs } = await list({ prefix: BLOB_FILENAME, limit: 1, token });
     if (!blobs || blobs.length === 0) {
-      console.log('[CloudSync] Belum ada snapshot cloud DB di Vercel Blob.');
+      console.log('[CloudSync] Belum ada snapshot database di Vercel Blob.');
       return false;
     }
 
@@ -37,7 +39,7 @@ async function syncFromCloud(resolvedDbPath) {
         const buffer = await res.arrayBuffer();
         fs.writeFileSync(resolvedDbPath, Buffer.from(buffer));
         lastSyncTime = Date.now();
-        console.log(`[CloudSync] Berhasil mengunduh snapshot database cloud (${buffer.byteLength} bytes).`);
+        console.log(`[CloudSync] Berhasil memulihkan database dari cloud (${buffer.byteLength} bytes). Data tidak akan hilang!`);
         return true;
       }
     }
@@ -47,23 +49,33 @@ async function syncFromCloud(resolvedDbPath) {
   return false;
 }
 
-async function syncToCloud(resolvedDbPath) {
-  if (!IS_VERCEL || !blobModule || !process.env.BLOB_STORE_ID || isSyncing) return false;
+async function syncToCloud(resolvedDbPath, dbInstance) {
+  if (!IS_VERCEL || !blobModule || isSyncing) return false;
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return false;
   if (!fs.existsSync(resolvedDbPath)) return false;
 
   isSyncing = true;
   try {
+    // Flush WAL checkpoint to main DB file before upload
+    if (dbInstance) {
+      try {
+        dbInstance.pragma('wal_checkpoint(TRUNCATE)');
+      } catch (e) {}
+    }
+
     const { put } = blobModule;
     const data = fs.readFileSync(resolvedDbPath);
     await put(BLOB_FILENAME, data, {
       access: 'public',
-      addRandomSuffix: false
+      addRandomSuffix: false,
+      token
     });
     lastSyncTime = Date.now();
-    console.log(`[CloudSync] Berhasil mengunggah database ke Vercel Blob (${data.length} bytes).`);
+    console.log(`[CloudSync] Data permanen berhasil disimpan ke cloud (${data.length} bytes).`);
     return true;
   } catch (err) {
-    console.warn('[CloudSync] Peringatan unggah cloud DB:', err.message);
+    console.warn('[CloudSync] Peringatan simpan cloud DB:', err.message);
     return false;
   } finally {
     isSyncing = false;

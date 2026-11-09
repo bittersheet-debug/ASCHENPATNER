@@ -221,7 +221,7 @@ function createBooking({ category, categoryName, categoryCode, telegramId, usern
 
   transaction();
   const created = getBookingById(bookingId);
-  cloudSync.syncToCloud(resolvedDbPath).catch(() => {});
+  cloudSync.syncToCloud(resolvedDbPath, db).catch(() => {});
   return created;
 }
 
@@ -332,7 +332,9 @@ function updateBookingVenue(bookingId, venueData, venueRendered) {
   });
 
   transaction();
-  return getBookingById(bookingId);
+  const updatedVenue = getBookingById(bookingId);
+  cloudSync.syncToCloud(resolvedDbPath, db).catch(() => {});
+  return updatedVenue;
 }
 
 function updateEventDate(bookingId, newDate, changedBy = 'Admin') {
@@ -349,6 +351,7 @@ function updateEventDate(bookingId, newDate, changedBy = 'Admin') {
 
   // Re-schedule thank you message if scheduled
   scheduleThankYouMessage(bookingId, current.telegram_id, newDate);
+  cloudSync.syncToCloud(resolvedDbPath, db).catch(() => {});
 }
 
 // Status History
@@ -545,10 +548,12 @@ function addNotificationChannel(channelId, title, username) {
       channel_username = excluded.channel_username,
       added_at = excluded.added_at
   `).run(String(channelId), title || '', username || '', now);
+  cloudSync.syncToCloud(resolvedDbPath, db).catch(() => {});
 }
 
 function removeNotificationChannel(channelId) {
   db.prepare('DELETE FROM notification_channels WHERE channel_id = ?').run(String(channelId));
+  cloudSync.syncToCloud(resolvedDbPath, db).catch(() => {});
 }
 
 function getNotificationChannels() {
@@ -557,6 +562,7 @@ function getNotificationChannels() {
 
 module.exports = {
   db,
+  resolvedDbPath,
   createBooking,
   getBookingById,
   getBookings,

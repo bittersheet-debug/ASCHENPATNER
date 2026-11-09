@@ -183,6 +183,23 @@ function registerHandlers(bot, io) {
     }
   });
 
+  // Channel post listener (captures channel when any post is published in channel)
+  bot.on('channel_post', async (ctx) => {
+    try {
+      const chat = ctx.chat;
+      if (chat && ['channel', 'supergroup', 'group'].includes(chat.type)) {
+        db.addNotificationChannel(chat.id, chat.title, chat.username);
+        console.log(`[Bot] Saluran terdeteksi dari channel_post: ${chat.title || chat.id} (${chat.id})`);
+        const text = (ctx.channelPost && ctx.channelPost.text) ? ctx.channelPost.text.toLowerCase() : '';
+        if (text.includes('test') || text.includes('ping') || text.includes('halo') || text.includes('notif')) {
+          await notification.sendChannelWelcome(chat.id, chat.title || 'Saluran Notifikasi ASCHEN');
+        }
+      }
+    } catch (e) {
+      console.error('[Bot] Error on channel_post:', e.message);
+    }
+  });
+
   // Menu Callbacks
   bot.action('menu:main', async (ctx) => {
     db.clearUserSession(ctx.from.id);

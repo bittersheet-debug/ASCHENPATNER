@@ -7,6 +7,7 @@ const path = require('path');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const db = require('../database/db');
+const cloudSync = require('../database/cloud_sync');
 const { BOOKING_STATUSES, CATEGORIES, OFFICIAL_RESERVASI_URL } = require('../../config/templates');
 const { generateToken, authMiddleware } = require('./auth');
 const messaging = require('../services/messaging');
@@ -68,8 +69,9 @@ function createServer(botInstance, io) {
   });
 
   // --- DASHBOARD OVERVIEW & STATS ---
-  app.get('/api/stats', authMiddleware, (req, res) => {
+  app.get('/api/stats', authMiddleware, async (req, res) => {
     try {
+      await cloudSync.syncFromCloud(db.resolvedDbPath);
       const stats = db.getDashboardStats();
       res.json(stats);
     } catch (err) {
@@ -78,9 +80,10 @@ function createServer(botInstance, io) {
   });
 
   // --- BOOKINGS CRUD & ACTIONS ---
-  app.get('/api/bookings', authMiddleware, (req, res) => {
+  app.get('/api/bookings', authMiddleware, async (req, res) => {
     try {
       const { search, status, category, limit = 100, offset = 0 } = req.query;
+      await cloudSync.syncFromCloud(db.resolvedDbPath);
       const bookings = db.getBookings({ search, status, category, limit: parseInt(limit, 10), offset: parseInt(offset, 10) });
       res.json({ bookings, statuses: BOOKING_STATUSES, categories: CATEGORIES });
     } catch (err) {
@@ -408,7 +411,18 @@ function createServer(botInstance, io) {
       }
       const webhookUrl = `${protocol}://${host}/api/webhook`;
 
-      await botInstance.telegram.setWebhook(webhookUrl);
+      await botInstance.telegram.setWebhook(webhookUrl, {
+        allowed_updates: [
+          'message',
+          'edited_message',
+          'channel_post',
+          'edited_channel_post',
+          'callback_query',
+          'my_chat_member',
+          'chat_member',
+          'chat_join_request'
+        ]
+      });
       const info = await botInstance.telegram.getWebhookInfo();
 
       res.json({
