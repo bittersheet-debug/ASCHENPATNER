@@ -172,6 +172,9 @@ async function submitVenueForm(ctx, io) {
   try {
     const updated = db.updateBookingVenue(session.bookingId, session.answers, rendered);
     db.clearUserSession(telegramId);
+    if (typeof db.persistToCloud === 'function') {
+      await db.persistToCloud();
+    }
 
     await ctx.answerCbQuery('Reservasi tempat berhasil dicatat!');
 

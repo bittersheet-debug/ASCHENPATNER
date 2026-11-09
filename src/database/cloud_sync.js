@@ -6,7 +6,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { IS_VERCEL } = require('../../config');
 
 let blobModule = null;
 try {
@@ -17,30 +16,58 @@ try {
 
 const BLOB_FILENAME = 'aschen_booking_cloud.db';
 let isSyncing = false;
-let lastSyncTime = 0;
+let pendingSync = false;
+let lastRestoredEtag = null;
+let lastCheckTime = 0;
 
-async function syncFromCloud(resolvedDbPath) {
-  if (!IS_VERCEL || !blobModule) return false;
+/**
+ * Downloads and restores the SQLite database from Vercel Blob if a newer snapshot exists.
+ * @param {string} resolvedDbPath - Path to local SQLite file
+ * @param {Function} [onReload] - Callback invoked when a new snapshot is restored
+ * @param {boolean} [force] - If true, bypasses the 2s throttle check
+ * @returns {Promise<boolean>}
+ */
+async function syncFromCloud(resolvedDbPath, onReload, force = false) {
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) return false;
+  if (!blobModule || !token) return false;
+
+  const now = Date.now();
+  if (!force && now - lastCheckTime < 2000 && lastRestoredEtag) {
+    return false;
+  }
+  lastCheckTime = now;
 
   try {
     const { list } = blobModule;
     const { blobs } = await list({ prefix: BLOB_FILENAME, limit: 1, token });
     if (!blobs || blobs.length === 0) {
-      console.log('[CloudSync] Belum ada snapshot database di Vercel Blob.');
       return false;
     }
 
     const targetBlob = blobs.find(b => b.pathname === BLOB_FILENAME) || blobs[0];
-    if (targetBlob && targetBlob.url) {
-      const res = await fetch(targetBlob.url);
+    if (targetBlob && targetBlob.downloadUrl) {
+      // If the cloud blob has the same etag as our local memory, no need to redownload
+      if (lastRestoredEtag && targetBlob.etag === lastRestoredEtag) {
+        return false;
+      }
+
+      const res = await fetch(targetBlob.downloadUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
       if (res.ok) {
         const buffer = await res.arrayBuffer();
         fs.writeFileSync(resolvedDbPath, Buffer.from(buffer));
-        lastSyncTime = Date.now();
-        console.log(`[CloudSync] Berhasil memulihkan database dari cloud (${buffer.byteLength} bytes). Data tidak akan hilang!`);
+        lastRestoredEtag = targetBlob.etag;
+        console.log(`[CloudSync] Database dipulihkan dari Vercel Blob (${buffer.byteLength} bytes, etag: ${targetBlob.etag}). Data permanen siap.`);
+        if (typeof onReload === 'function') {
+          onReload();
+        }
         return true;
+      } else {
+        console.warn(`[CloudSync] Peringatan download blob (HTTP ${res.status})`);
       }
     }
   } catch (err) {
@@ -49,36 +76,56 @@ async function syncFromCloud(resolvedDbPath) {
   return false;
 }
 
+/**
+ * Commits SQLite WAL to file and snapshots the database to Vercel Blob.
+ * @param {string} resolvedDbPath - Path to local SQLite file
+ * @param {object} [dbInstance] - better-sqlite3 database instance
+ * @returns {Promise<boolean>}
+ */
 async function syncToCloud(resolvedDbPath, dbInstance) {
-  if (!IS_VERCEL || !blobModule || isSyncing) return false;
   const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) return false;
+  if (!blobModule || !token) return false;
   if (!fs.existsSync(resolvedDbPath)) return false;
+
+  if (isSyncing) {
+    pendingSync = true;
+    return false;
+  }
 
   isSyncing = true;
   try {
-    // Flush WAL checkpoint to main DB file before upload
-    if (dbInstance) {
+    // Flush WAL checkpoint to main DB file before snapshotting
+    if (dbInstance && dbInstance.open) {
       try {
         dbInstance.pragma('wal_checkpoint(TRUNCATE)');
-      } catch (e) {}
+      } catch (e) {
+        // Ignored if busy
+      }
     }
 
     const { put } = blobModule;
     const data = fs.readFileSync(resolvedDbPath);
-    await put(BLOB_FILENAME, data, {
-      access: 'public',
+    const blob = await put(BLOB_FILENAME, data, {
+      access: 'private',
+      allowOverwrite: true,
       addRandomSuffix: false,
       token
     });
-    lastSyncTime = Date.now();
-    console.log(`[CloudSync] Data permanen berhasil disimpan ke cloud (${data.length} bytes).`);
+
+    if (blob && blob.etag) {
+      lastRestoredEtag = blob.etag;
+    }
+    console.log(`[CloudSync] Data permanen berhasil disimpan ke Vercel Blob (${data.length} bytes, etag: ${blob.etag}).`);
     return true;
   } catch (err) {
     console.warn('[CloudSync] Peringatan simpan cloud DB:', err.message);
     return false;
   } finally {
     isSyncing = false;
+    if (pendingSync) {
+      pendingSync = false;
+      syncToCloud(resolvedDbPath, dbInstance).catch(() => {});
+    }
   }
 }
 

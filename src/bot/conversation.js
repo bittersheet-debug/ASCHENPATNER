@@ -358,8 +358,11 @@ async function submitBookingForm(ctx, io) {
       renderedPreview: rendered
     });
 
-    // Clear session
+    // Clear session and persist state to cloud storage
     db.clearUserSession(telegramId);
+    if (typeof db.persistToCloud === 'function') {
+      await db.persistToCloud();
+    }
     await ctx.answerCbQuery('Formulir berhasil dikirimkan!');
 
     const successMsg = `𓄲 ASCHEN EVENT ORGANIZER\n` +

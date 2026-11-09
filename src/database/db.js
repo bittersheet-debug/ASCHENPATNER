@@ -31,115 +31,144 @@ if ((resolvedDbPath.startsWith('/tmp') || resolvedDbPath.includes('tmp')) && !fs
   }
 }
 
-// Try restoring newer cloud database snapshot from Vercel Blob if available
-cloudSync.syncFromCloud(resolvedDbPath).catch(() => {});
+// Function to initialize database schema & seed default admin
+function initSchema(dbInstance) {
+  dbInstance.exec(`
+    CREATE TABLE IF NOT EXISTS bookings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id TEXT UNIQUE NOT NULL,
+      telegram_id INTEGER NOT NULL,
+      username TEXT,
+      full_name TEXT,
+      category TEXT NOT NULL,
+      category_name TEXT NOT NULL,
+      event_date TEXT NOT NULL,
+      event_time TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Formulir Terkirim',
+      form_data TEXT NOT NULL,
+      rendered_preview TEXT NOT NULL,
+      venue_data TEXT,
+      venue_rendered TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
 
-const db = new Database(resolvedDbPath);
+    CREATE INDEX IF NOT EXISTS idx_bookings_booking_id ON bookings(booking_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_telegram_id ON bookings(telegram_id);
+    CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
+
+    CREATE TABLE IF NOT EXISTS status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id TEXT NOT NULL,
+      old_status TEXT,
+      new_status TEXT NOT NULL,
+      changed_by TEXT NOT NULL,
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id TEXT NOT NULL,
+      sender_type TEXT NOT NULL, -- 'customer' or 'admin'
+      sender_name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      is_read INTEGER DEFAULT 0,
+      FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_messages_booking_id ON messages(booking_id);
+
+    CREATE TABLE IF NOT EXISTS scheduled_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_id TEXT NOT NULL,
+      telegram_id INTEGER NOT NULL,
+      event_date TEXT NOT NULL,
+      scheduled_at TEXT NOT NULL, -- ISO timestamp for 19:00 WIB
+      message_text TEXT NOT NULL,
+      status TEXT DEFAULT 'pending', -- 'pending', 'sent', 'failed', 'cancelled'
+      error_log TEXT,
+      sent_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_messages(status);
+
+    CREATE TABLE IF NOT EXISTS admins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      telegram_id INTEGER,
+      name TEXT NOT NULL,
+      role TEXT DEFAULT 'admin',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      telegram_id INTEGER PRIMARY KEY,
+      state_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id TEXT UNIQUE NOT NULL,
+      channel_title TEXT,
+      channel_username TEXT,
+      added_at TEXT NOT NULL
+    );
+  `);
+
+  try {
+    const checkAdmin = dbInstance.prepare('SELECT id FROM admins WHERE username = ?').get(ADMIN_DEFAULT_USER);
+    if (!checkAdmin) {
+      const salt = bcrypt.genSaltSync(10);
+      const hash = bcrypt.hashSync(ADMIN_DEFAULT_PASS, salt);
+      dbInstance.prepare(`
+        INSERT INTO admins (username, password_hash, name, role, created_at)
+        VALUES (?, ?, ?, 'superadmin', datetime('now'))
+      `).run(ADMIN_DEFAULT_USER, hash, 'ASCHEN Lead Admin');
+      console.log(`[DB] Created default admin account: ${ADMIN_DEFAULT_USER}`);
+    }
+  } catch (err) {
+    console.warn('[DB] Admin init check warning:', err.message);
+  }
+}
+
+let db = new Database(resolvedDbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+initSchema(db);
 
-// Initialize schema
-db.exec(`
-  CREATE TABLE IF NOT EXISTS bookings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    booking_id TEXT UNIQUE NOT NULL,
-    telegram_id INTEGER NOT NULL,
-    username TEXT,
-    full_name TEXT,
-    category TEXT NOT NULL,
-    category_name TEXT NOT NULL,
-    event_date TEXT NOT NULL,
-    event_time TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'Formulir Terkirim',
-    form_data TEXT NOT NULL,
-    rendered_preview TEXT NOT NULL,
-    venue_data TEXT,
-    venue_rendered TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_bookings_booking_id ON bookings(booking_id);
-  CREATE INDEX IF NOT EXISTS idx_bookings_telegram_id ON bookings(telegram_id);
-  CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(status);
-
-  CREATE TABLE IF NOT EXISTS status_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    booking_id TEXT NOT NULL,
-    old_status TEXT,
-    new_status TEXT NOT NULL,
-    changed_by TEXT NOT NULL,
-    notes TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    booking_id TEXT NOT NULL,
-    sender_type TEXT NOT NULL, -- 'customer' or 'admin'
-    sender_name TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    is_read INTEGER DEFAULT 0,
-    FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_messages_booking_id ON messages(booking_id);
-
-  CREATE TABLE IF NOT EXISTS scheduled_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    booking_id TEXT NOT NULL,
-    telegram_id INTEGER NOT NULL,
-    event_date TEXT NOT NULL,
-    scheduled_at TEXT NOT NULL, -- ISO timestamp for 19:00 WIB
-    message_text TEXT NOT NULL,
-    status TEXT DEFAULT 'pending', -- 'pending', 'sent', 'failed', 'cancelled'
-    error_log TEXT,
-    sent_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(booking_id) REFERENCES bookings(booking_id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_messages(status);
-
-  CREATE TABLE IF NOT EXISTS admins (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    telegram_id INTEGER,
-    name TEXT NOT NULL,
-    role TEXT DEFAULT 'admin',
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS user_sessions (
-    telegram_id INTEGER PRIMARY KEY,
-    state_json TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS notification_channels (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    channel_id TEXT UNIQUE NOT NULL,
-    channel_title TEXT,
-    channel_username TEXT,
-    added_at TEXT NOT NULL
-  );
-`);
-
-// Seed default admin if not exists
-const checkAdmin = db.prepare('SELECT id FROM admins WHERE username = ?').get(ADMIN_DEFAULT_USER);
-if (!checkAdmin) {
-  const salt = bcrypt.genSaltSync(10);
-  const hash = bcrypt.hashSync(ADMIN_DEFAULT_PASS, salt);
-  db.prepare(`
-    INSERT INTO admins (username, password_hash, name, role, created_at)
-    VALUES (?, ?, ?, 'superadmin', datetime('now'))
-  `).run(ADMIN_DEFAULT_USER, hash, 'ASCHEN Lead Admin');
-  console.log(`[DB] Created default admin account: ${ADMIN_DEFAULT_USER}`);
+function reloadDb() {
+  try {
+    if (db && db.open) {
+      db.close();
+    }
+  } catch (e) {
+    console.warn('[DB] Close error during reload:', e.message);
+  }
+  db = new Database(resolvedDbPath);
+  db.pragma('journal_mode = WAL');
+  db.pragma('foreign_keys = ON');
+  initSchema(db);
+  console.log('[DB] Database reloaded successfully from snapshot.');
 }
+
+async function restoreFromCloud(force = false) {
+  return await cloudSync.syncFromCloud(resolvedDbPath, reloadDb, force);
+}
+
+async function persistToCloud() {
+  return await cloudSync.syncToCloud(resolvedDbPath, db);
+}
+
+// Initial restore attempt on startup
+restoreFromCloud().catch(() => {});
 
 // Generate unique Booking ID: e.g. ASC-WED-9482
 function generateBookingId(categoryCode) {
@@ -561,8 +590,12 @@ function getNotificationChannels() {
 }
 
 module.exports = {
-  db,
+  get db() { return db; },
+  get dbInstance() { return db; },
   resolvedDbPath,
+  reloadDb,
+  restoreFromCloud,
+  persistToCloud,
   createBooking,
   getBookingById,
   getBookings,

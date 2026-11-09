@@ -71,7 +71,9 @@ function createServer(botInstance, io) {
   // --- DASHBOARD OVERVIEW & STATS ---
   app.get('/api/stats', authMiddleware, async (req, res) => {
     try {
-      await cloudSync.syncFromCloud(db.resolvedDbPath);
+      if (typeof db.restoreFromCloud === 'function') {
+        await db.restoreFromCloud();
+      }
       const stats = db.getDashboardStats();
       res.json(stats);
     } catch (err) {
@@ -83,7 +85,9 @@ function createServer(botInstance, io) {
   app.get('/api/bookings', authMiddleware, async (req, res) => {
     try {
       const { search, status, category, limit = 100, offset = 0 } = req.query;
-      await cloudSync.syncFromCloud(db.resolvedDbPath);
+      if (typeof db.restoreFromCloud === 'function') {
+        await db.restoreFromCloud();
+      }
       const bookings = db.getBookings({ search, status, category, limit: parseInt(limit, 10), offset: parseInt(offset, 10) });
       res.json({ bookings, statuses: BOOKING_STATUSES, categories: CATEGORIES });
     } catch (err) {
@@ -91,8 +95,11 @@ function createServer(botInstance, io) {
     }
   });
 
-  app.get('/api/bookings/:bookingId', authMiddleware, (req, res) => {
+  app.get('/api/bookings/:bookingId', authMiddleware, async (req, res) => {
     try {
+      if (typeof db.restoreFromCloud === 'function') {
+        await db.restoreFromCloud();
+      }
       const booking = db.getBookingById(req.params.bookingId);
       if (!booking) return res.status(404).json({ error: 'Booking tidak ditemukan.' });
 
@@ -169,6 +176,10 @@ function createServer(botInstance, io) {
         });
       }
 
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
+
       res.json({ success: true, booking: updated });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -227,6 +238,10 @@ function createServer(botInstance, io) {
         });
       }
 
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
+
       res.json({ success: true, message: 'Link reservasi ruang pertemuan berhasil dikirimkan ke Telegram pemesan.' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -234,7 +249,7 @@ function createServer(botInstance, io) {
   });
 
   // Update Event Date & Time
-  app.post('/api/bookings/:bookingId/update-date', authMiddleware, (req, res) => {
+  app.post('/api/bookings/:bookingId/update-date', authMiddleware, async (req, res) => {
     try {
       const { eventDate } = req.body;
       if (!eventDate) return res.status(400).json({ error: 'Tanggal acara wajib diisi.' });
@@ -244,6 +259,10 @@ function createServer(botInstance, io) {
 
       if (io) {
         io.emit('booking_updated', { booking_id: updated.booking_id });
+      }
+
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
       }
 
       res.json({ success: true, booking: updated });
@@ -276,6 +295,10 @@ function createServer(botInstance, io) {
         adminName,
         message.trim()
       );
+
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
 
       res.json({ success: true, message: savedMsg });
     } catch (err) {
@@ -327,8 +350,11 @@ function createServer(botInstance, io) {
   });
 
   // --- NOTIFICATION CHANNELS ---
-  app.get('/api/channels', authMiddleware, (req, res) => {
+  app.get('/api/channels', authMiddleware, async (req, res) => {
     try {
+      if (typeof db.restoreFromCloud === 'function') {
+        await db.restoreFromCloud();
+      }
       const channels = db.getNotificationChannels();
       res.json({ channels });
     } catch (err) {
@@ -336,21 +362,27 @@ function createServer(botInstance, io) {
     }
   });
 
-  app.post('/api/channels', authMiddleware, (req, res) => {
+  app.post('/api/channels', authMiddleware, async (req, res) => {
     try {
       const { channelId, channelTitle } = req.body;
       if (!channelId) return res.status(400).json({ error: 'ID atau username channel wajib diisi.' });
 
       db.addNotificationChannel(channelId, channelTitle || 'Channel Notifikasi', '');
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
       res.json({ success: true, message: 'Channel berhasil didaftarkan.' });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete('/api/channels/:id', authMiddleware, (req, res) => {
+  app.delete('/api/channels/:id', authMiddleware, async (req, res) => {
     try {
       db.removeNotificationChannel(req.params.id);
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
       res.json({ success: true, message: 'Channel berhasil dihapus.' });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -385,6 +417,9 @@ function createServer(botInstance, io) {
 
     try {
       await botInstance.handleUpdate(req.body, res);
+      if (typeof db.persistToCloud === 'function') {
+        await db.persistToCloud();
+      }
       if (!res.headersSent) {
         res.status(200).send('OK');
       }
