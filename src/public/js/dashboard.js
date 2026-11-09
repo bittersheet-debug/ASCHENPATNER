@@ -289,39 +289,89 @@ function switchTab(tabId) {
   }
 }
 
-// --- WEBSOCKET REAL-TIME EVENTS & HTTP POLLING FALLBACK ---
-let fallbackPollInterval = null;
+// --- REAL-TIME LIVE SYNC & NOTIFICATION ENGINE ---
+let liveSyncInterval = null;
+let lastSeenBookingIds = new Set();
+let isInitialLoad = true;
 
-function startFallbackPolling() {
-  if (fallbackPollInterval) return;
-  fallbackPollInterval = setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
-      if (activeTab === 'overview') loadOverview();
-      else if (activeTab === 'bookings') loadBookings();
-      else if (activeTab === 'schedule') loadSchedule();
-      else if (activeTab === 'automated') loadSchedulesTable();
-
-      if (activeBookingId && !bookingModal.classList.contains('hidden')) {
-        fetch(`/api/bookings/${activeBookingId}/messages`)
-          .then(r => r.json())
-          .then(data => {
-            if (data.messages) renderChatMessages(data.messages);
-          })
-          .catch(() => {});
-      }
+// Synthesize luxury notification chimes via Web Audio API (zero external assets needed)
+function playChime(type = 'booking') {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
     }
-  }, 7000);
+
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    if (type === 'chat') {
+      // 2-tone melodic bubble pop for incoming customer chat
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.setValueAtTime(783.99, now + 0.08); // G5
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else {
+      // Luxury gold 3-tone arpeggio for new incoming booking
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(587.33, now); // D5
+      osc.frequency.setValueAtTime(739.99, now + 0.12); // F#5
+      osc.frequency.setValueAtTime(880.00, now + 0.24); // A5
+      gain.gain.setValueAtTime(0.28, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.6);
+    }
+  } catch (e) {}
 }
 
-function stopFallbackPolling() {
-  if (fallbackPollInterval) {
-    clearInterval(fallbackPollInterval);
-    fallbackPollInterval = null;
-  }
+function startLiveSync() {
+  if (liveSyncInterval) return;
+
+  // Ultra-responsive 2.5s live sync cycle
+  liveSyncInterval = setInterval(async () => {
+    // 1. Sync stats & tables
+    loadOverview(true);
+    loadBookings(true);
+
+    // 2. Sync active chat if modal is open
+    if (activeBookingId && !bookingModal.classList.contains('hidden')) {
+      pollActiveChat();
+    }
+  }, 2500);
+}
+
+async function pollActiveChat() {
+  if (!activeBookingId || bookingModal.classList.contains('hidden')) return;
+  try {
+    const res = await fetch(`/api/bookings/${activeBookingId}/messages`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const currentBubbles = chatMessagesContainer.querySelectorAll('.chat-bubble');
+    if (data.messages && data.messages.length > currentBubbles.length) {
+      const lastMsg = data.messages[data.messages.length - 1];
+      if (lastMsg.sender_type === 'customer') {
+        playChime('chat');
+        showToast(`💬 Pesan masuk dari ${lastMsg.sender_name}`);
+      }
+      renderChatMessages(data.messages);
+    }
+  } catch (e) {}
 }
 
 function initWebSocket() {
+  startLiveSync(); // Guarantee live sync is ALWAYS running immediately
+
   if (ws) return;
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}`;
@@ -331,7 +381,6 @@ function initWebSocket() {
 
     ws.onopen = () => {
       document.getElementById('botStatusLabel').textContent = 'Sistem Realtime Aktif (WebSocket)';
-      stopFallbackPolling();
     };
 
     ws.onmessage = (event) => {
@@ -339,6 +388,7 @@ function initWebSocket() {
         const msg = JSON.parse(event.data);
 
         if (msg.event === 'new_booking') {
+          playChime('booking');
           showToast(`🔔 Formulir baru masuk! ID: ${msg.data.booking_id} (${msg.data.category})`);
           loadDashboardData();
         } else if (msg.event === 'chat_message') {
@@ -363,19 +413,16 @@ function initWebSocket() {
     };
 
     ws.onerror = () => {
-      document.getElementById('botStatusLabel').textContent = 'Mode Realtime HTTP Aktif';
-      startFallbackPolling();
+      document.getElementById('botStatusLabel').textContent = 'Sistem Realtime Aktif (Live Sync)';
     };
 
     ws.onclose = () => {
-      document.getElementById('botStatusLabel').textContent = 'Mode Realtime HTTP Aktif';
+      document.getElementById('botStatusLabel').textContent = 'Sistem Realtime Aktif (Live Sync)';
       ws = null;
-      startFallbackPolling();
-      setTimeout(initWebSocket, 15000);
+      setTimeout(initWebSocket, 20000);
     };
   } catch (err) {
-    document.getElementById('botStatusLabel').textContent = 'Mode Realtime HTTP Aktif';
-    startFallbackPolling();
+    document.getElementById('botStatusLabel').textContent = 'Sistem Realtime Aktif (Live Sync)';
   }
 }
 
@@ -386,7 +433,7 @@ async function loadDashboardData() {
   loadSchedulesTable();
 }
 
-async function loadOverview() {
+async function loadOverview(isSilent = false) {
   try {
     const res = await fetch('/api/stats');
     if (!res.ok) return;
@@ -440,11 +487,11 @@ async function loadOverview() {
     }
 
   } catch (err) {
-    console.error('Error loading stats:', err);
+    if (!isSilent) console.error('Error loading stats:', err);
   }
 }
 
-async function loadBookings() {
+async function loadBookings(isSilent = false) {
   try {
     const search = document.getElementById('bookingSearchInput')?.value || '';
     const category = document.getElementById('filterCategory')?.value || '';
@@ -455,19 +502,45 @@ async function loadBookings() {
     if (!res.ok) return;
     const data = await res.json();
 
+    const bookings = data.bookings || [];
+
+    // Detect brand new incoming bookings
+    const newItems = [];
+    bookings.forEach(b => {
+      if (!lastSeenBookingIds.has(b.booking_id)) {
+        if (!isInitialLoad) {
+          newItems.push(b);
+        }
+        lastSeenBookingIds.add(b.booking_id);
+      }
+    });
+
+    if (!isInitialLoad && newItems.length > 0) {
+      playChime('booking');
+      const newest = newItems[0];
+      showToast(`🔔 ${newItems.length} FORMULIR BARU MASUK DARI BOT! [${newest.booking_id}] ${newest.category_name} (${newest.full_name || '@' + newest.username})`);
+      document.title = `(${newItems.length}) 🔔 FORMULIR BARU! — ASCHEN`;
+      setTimeout(() => { document.title = 'ASCHEN EVENT ORGANIZER — Dashboard Admin'; }, 8000);
+    }
+
+    if (isInitialLoad && bookings.length > 0) {
+      isInitialLoad = false;
+    }
+
     const tbody = document.getElementById('bookingsTableBody');
-    if (!data.bookings || data.bookings.length === 0) {
+    if (bookings.length === 0) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-sub">Tidak ada pemesanan yang cocok dengan kriteria.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = data.bookings.map(b => {
+    tbody.innerHTML = bookings.map(b => {
+      const isNew = newItems.some(item => item.booking_id === b.booking_id);
       const timeSubmitted = new Date(b.created_at).toLocaleString('id-ID', {
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
       });
 
       return `
-        <tr>
+        <tr class="${isNew ? 'row-new' : ''}">
           <td><strong class="text-gold">${b.booking_id}</strong></td>
           <td>
             <div>${b.full_name || '-'}</div>
@@ -488,7 +561,7 @@ async function loadBookings() {
     }).join('');
 
   } catch (err) {
-    console.error('Error loading bookings:', err);
+    if (!isSilent) console.error('Error loading bookings:', err);
   }
 }
 

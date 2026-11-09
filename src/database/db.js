@@ -4,6 +4,7 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { DB_PATH, ADMIN_DEFAULT_USER, ADMIN_DEFAULT_PASS } = require('../../config');
 const { THANK_YOU_MESSAGE } = require('../../config/templates');
+const cloudSync = require('./cloud_sync');
 
 const resolvedDbPath = path.resolve(DB_PATH);
 const dir = path.dirname(resolvedDbPath);
@@ -29,6 +30,9 @@ if ((resolvedDbPath.startsWith('/tmp') || resolvedDbPath.includes('tmp')) && !fs
     }
   }
 }
+
+// Try restoring newer cloud database snapshot from Vercel Blob if available
+cloudSync.syncFromCloud(resolvedDbPath).catch(() => {});
 
 const db = new Database(resolvedDbPath);
 db.pragma('journal_mode = WAL');
@@ -216,7 +220,9 @@ function createBooking({ category, categoryName, categoryCode, telegramId, usern
   });
 
   transaction();
-  return getBookingById(bookingId);
+  const created = getBookingById(bookingId);
+  cloudSync.syncToCloud(resolvedDbPath).catch(() => {});
+  return created;
 }
 
 function getBookingById(bookingId) {
@@ -297,7 +303,9 @@ function updateBookingStatus(bookingId, newStatus, changedBy = 'Admin', notes = 
   });
 
   transaction();
-  return getBookingById(bookingId);
+  const updated = getBookingById(bookingId);
+  cloudSync.syncToCloud(resolvedDbPath).catch(() => {});
+  return updated;
 }
 
 function updateBookingVenue(bookingId, venueData, venueRendered) {
@@ -356,7 +364,9 @@ function addMessage(bookingId, senderType, senderName, message) {
     VALUES (?, ?, ?, ?, ?, 0)
   `).run(bookingId, senderType, senderName, message, now);
 
-  return db.prepare('SELECT * FROM messages WHERE id = ?').get(res.lastInsertRowid);
+  const saved = db.prepare('SELECT * FROM messages WHERE id = ?').get(res.lastInsertRowid);
+  cloudSync.syncToCloud(resolvedDbPath).catch(() => {});
+  return saved;
 }
 
 function getMessages(bookingId) {

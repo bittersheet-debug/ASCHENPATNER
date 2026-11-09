@@ -912,3 +912,15 @@ body {
 .text-center { text-align: center; }
 .py-4 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
 .mt-3 { margin-top: 0.9rem; }
+
+/* Real-time row highlight animation */
+@keyframes goldFlash {
+  0% { background-color: rgba(197, 160, 89, 0.4); transform: scale(1.01); }
+  50% { background-color: rgba(197, 160, 89, 0.15); }
+  100% { background-color: transparent; transform: scale(1); }
+}
+
+.row-new {
+  animation: goldFlash 3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-left: 3px solid var(--gold-light) !important;
+}

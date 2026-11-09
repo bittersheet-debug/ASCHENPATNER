@@ -17,6 +17,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.2",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cookie-parser": "^1.4.7",
