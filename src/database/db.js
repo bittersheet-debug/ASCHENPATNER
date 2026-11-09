@@ -134,8 +134,21 @@ function initSchema(dbInstance) {
       `).run(ADMIN_DEFAULT_USER, hash, 'ASCHEN Lead Admin');
       console.log(`[DB] Created default admin account: ${ADMIN_DEFAULT_USER}`);
     }
+
+    // Ensure permanent notification channel -1003955381888 is registered (on non-test DBs)
+    if (!resolvedDbPath.includes('test_')) {
+      const permanentChannelId = '-1003955381888';
+      const checkChannel = dbInstance.prepare('SELECT id FROM notification_channels WHERE channel_id = ?').get(permanentChannelId);
+      if (!checkChannel) {
+        dbInstance.prepare(`
+          INSERT INTO notification_channels (channel_id, channel_title, channel_username, added_at)
+          VALUES (?, 'NOTIFKASI ASCHEN', '', datetime('now'))
+        `).run(permanentChannelId);
+        console.log(`[DB] Saluran notifikasi permanen terdaftar: ${permanentChannelId}`);
+      }
+    }
   } catch (err) {
-    console.warn('[DB] Admin init check warning:', err.message);
+    console.warn('[DB] Admin / channel init check warning:', err.message);
   }
 }
 

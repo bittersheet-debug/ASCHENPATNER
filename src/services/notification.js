@@ -5,6 +5,7 @@
 
 const db = require('../database/db');
 const { Markup } = require('telegraf');
+const { NOTIFICATION_CHANNEL_ID } = require('../../config');
 
 class NotificationService {
   constructor() {
@@ -28,9 +29,10 @@ class NotificationService {
     // From DB
     channels.forEach(c => targetChannelIds.add(c.channel_id));
 
-    // From environment variable if set
-    if (process.env.NOTIFICATION_CHANNEL_ID) {
-      process.env.NOTIFICATION_CHANNEL_ID.split(',').forEach(id => {
+    // From environment variable or permanent config
+    const permanentIds = process.env.NOTIFICATION_CHANNEL_ID || NOTIFICATION_CHANNEL_ID || '-1003955381888';
+    if (permanentIds) {
+      permanentIds.split(',').forEach(id => {
         const trimmed = id.trim();
         if (trimmed) targetChannelIds.add(trimmed);
       });
