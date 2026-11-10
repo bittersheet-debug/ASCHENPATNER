@@ -1,0 +1,17 @@
+[Unit]
+Description=MEDIAPATNER BOT - ASCHEN EVENT ORGANIZER
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/cheneoasv
+ExecStart=/usr/bin/python3 -u main.py
+Restart=always
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=append:/var/www/cheneoasv/data/bot.log
+StandardError=append:/var/www/cheneoasv/data/bot.log
+
+[Install]
+WantedBy=multi-user.target

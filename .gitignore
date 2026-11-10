@@ -4,10 +4,17 @@ node_modules/
 # Environment variables
 .env
 
-# SQLite local test files & temp journals
-data/test_*.db*
-data/*.db-wal
-data/*.db-shm
+# SQLite database files & temp journals
+data/*.db
+data/*.db*
+data/*.sqlite
+data/*.sqlite3
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
 
 # OS generated files
 .DS_Store
