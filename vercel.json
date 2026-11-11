@@ -2,14 +2,30 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/mediapatner-webhook",
+      "destination": "/api/mediapatner_webhook.py"
+    },
+    {
+      "source": "/api/mediapatner-setup-webhook",
+      "destination": "/api/mediapatner_setup.py"
+    },
+    {
+      "source": "/api/mediapatner-api",
+      "destination": "/api/mediapatner_api.py"
+    },
+    {
+      "source": "/api/cron/mediapatner-publish",
+      "destination": "/api/mediapatner_cron.py"
+    },
+    {
       "source": "/(.*)",
       "destination": "/api/index.js"
     }
   ],
   "crons": [
     {
-      "path": "/api/cron/check-messages",
-      "schedule": "0 12 * * *"
+      "path": "/api/cron/mediapatner-publish",
+      "schedule": "0 2 * * *"
     }
   ]
 }

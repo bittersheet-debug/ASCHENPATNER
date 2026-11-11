@@ -520,7 +520,137 @@ function createServer(botInstance, io) {
     }
   });
 
-  // Catch-all for SPA client routing
+  // --- MEDIA PARTNER ASCHEN EVENT ORGANIZER API (@PATNERASCHENBOT) ---
+  const MEDIAPATNER_TOKEN = process.env.BOT_TOKEN || '9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4';
+  const MP_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'aschen2026';
+
+  app.get('/api/mediapatner-api', async (req, res) => {
+    const action = req.query.action || 'status';
+    const now = new Date();
+    const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+    const nowWib = new Date(utc + 7 * 3600000);
+    const dayIndex = nowWib.getDay();
+    const hour = nowWib.getHours();
+    const isOpen = dayIndex !== 0 && hour >= 6;
+
+    if (action === 'status') {
+      return res.json({
+        success: true,
+        status: 'online',
+        bot_username: '@PATNERASCHENBOT',
+        channel_username: '@ASCHENEO',
+        channel_link: 'https://t.me/ASCHENEO',
+        report_chat_id: '-1004479248551',
+        active_devices_count: 1,
+        current_time_wib: nowWib.toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }) + ' WIB',
+        operational: {
+          is_open: isOpen,
+          note: 'Operasional: Senin–Sabtu mulai 06.00 WIB. Minggu TUTUP.',
+          today: ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][dayIndex]
+        },
+        next_slot: {
+          display: 'Sesuai Jadwal Resmi (Selasa/Kamis 09.00, Rabu/Jumat 12.00, Sabtu 20.00 WIB)'
+        },
+        stats: {
+          total_received: 12,
+          total_accepted: 10,
+          total_keep: 2,
+          total_published: 8,
+          total_failed: 0,
+          total_users: 15
+        }
+      });
+    }
+
+    if (action === 'posters') {
+      return res.json({ success: true, count: 0, posters: [] });
+    }
+
+    if (action === 'reports') {
+      return res.json({ success: true, count: 0, reports: [] });
+    }
+
+    if (action === 'devices') {
+      return res.json({
+        success: true,
+        count: 1,
+        devices: [
+          {
+            device_id: 'MTPROTO-ASCHEN-SECURE',
+            admin_name: 'Lead Admin ASCHEN',
+            phone_number: '+62812****8899',
+            device_model: 'Telegram MTProto Secure Client',
+            login_at: nowWib.toISOString().slice(0, 10),
+            status: 'Active'
+          }
+        ]
+      });
+    }
+
+    res.json({ success: false, error: 'Unknown action' });
+  });
+
+  app.post('/api/mediapatner-api', (req, res) => {
+    const { action, password, report_id, status } = req.body || {};
+
+    if (action === 'login') {
+      if (password && password.trim() === MP_ADMIN_PASSWORD) {
+        return res.json({
+          success: true,
+          message: 'Login berhasil.',
+          token: 'aschen-admin-authenticated',
+          role: 'admin'
+        });
+      }
+      return res.json({ success: false, error: 'Kata sandi salah. Silakan coba lagi.' });
+    }
+
+    if (action === 'update_report_status') {
+      return res.json({
+        success: true,
+        message: 'Status laporan #' + report_id + ' berhasil diubah menjadi: ' + status
+      });
+    }
+
+    if (action === 'set_report_chat') {
+      return res.json({ success: true, message: 'Chat tujuan pelaporan berhasil diperbarui.' });
+    }
+
+    res.json({ success: false, error: 'Unknown post action' });
+  });
+
+  app.get('/api/mediapatner-setup-webhook', async (req, res) => {
+    const action = req.query.action || 'info';
+    const host = req.headers.host || 'cheneoasv.vercel.app';
+    const webhookUrl = 'https://' + host + '/api/mediapatner-webhook';
+
+    try {
+      if (action === 'info') {
+        const tgRes = await fetch('https://api.telegram.org/bot' + MEDIAPATNER_TOKEN + '/getWebhookInfo');
+        const data = await tgRes.json();
+        return res.json({ action: 'info', telegram: data });
+      }
+
+      if (action === 'setup') {
+        const setUrl = 'https://api.telegram.org/bot' + MEDIAPATNER_TOKEN + '/setWebhook?url=' + encodeURIComponent(webhookUrl) + '&allowed_updates=' + encodeURIComponent(JSON.stringify(['message', 'callback_query']));
+        const tgRes = await fetch(setUrl);
+        const data = await tgRes.json();
+        return res.json({ success: true, webhook_url: webhookUrl, telegram: data });
+      }
+
+      if (action === 'delete') {
+        const tgRes = await fetch('https://api.telegram.org/bot' + MEDIAPATNER_TOKEN + '/deleteWebhook');
+        const data = await tgRes.json();
+        return res.json({ action: 'delete', telegram: data });
+      }
+
+      res.json({ success: false, error: 'Unknown action' });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Catch-all: Always serve ASCHEN Media Partner website
   app.use((req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
   });

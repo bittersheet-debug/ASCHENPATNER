@@ -3,529 +3,435 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ASCHEN EVENT ORGANIZER | Admin Dashboard</title>
+  <title>ASCHEN EVENT ORGANIZER — Media Partner Portal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/style.css">
 </head>
-<body class="dark-mode">
+<body class="dark-theme">
 
-  <!-- LOGIN SCREEN -->
-  <div id="loginScreen" class="login-wrapper">
-    <div class="login-box">
-      <div class="brand-header">
-        <span class="symbol">𓄲</span>
-        <h1>ASCHEN EVENT ORGANIZER</h1>
-        <p class="subtitle">BOOKING BOT — ADMIN DASHBOARD</p>
-      </div>
-
-      <div id="loginAlert" class="alert error hidden"></div>
-
-      <form id="loginForm">
-        <div class="form-group">
-          <label><i class="fa-solid fa-user"></i> Username Admin</label>
-          <input type="text" id="loginUsername" placeholder="Masukkan username" required autocomplete="username">
+  <!-- NAVIGATION BAR -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="brand-logo">
+        <span class="symbol-gold">𓄲</span>
+        <div class="brand-text">
+          <span class="title">ASCHEN</span>
+          <span class="subtitle">MEDIA PARTNER</span>
         </div>
-        <div class="form-group">
-          <label><i class="fa-solid fa-lock"></i> Kata Sandi</label>
-          <input type="password" id="loginPassword" placeholder="Masukkan kata sandi" required autocomplete="current-password">
-        </div>
-        <button type="submit" class="btn btn-gold btn-block">
-          <i class="fa-solid fa-right-to-bracket"></i> Masuk ke Dashboard
-        </button>
-      </form>
+      </a>
 
-      <div class="login-footer">
-        <p>With Love, ASCHEN EVENT ORGANIZER.</p>
-        <span class="tag">@ASCHENEO</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- MAIN APP SCREEN -->
-  <div id="appScreen" class="app-container hidden">
-
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <span class="symbol-sm">𓄲</span>
-          <div class="logo-text">
-            <h2>ASCHEN</h2>
-            <small>EVENT ORGANIZER</small>
-          </div>
-        </div>
-      </div>
-
-      <nav class="sidebar-nav">
-        <a href="#overview" class="nav-item active" data-tab="overview">
-          <i class="fa-solid fa-chart-pie"></i>
-          <span>Ringkasan</span>
-        </a>
-        <a href="#bookings" class="nav-item" data-tab="bookings">
-          <i class="fa-solid fa-clipboard-list"></i>
-          <span>Daftar Booking</span>
-          <span id="badgePending" class="badge-count hidden">0</span>
-        </a>
-        <a href="#schedule" class="nav-item" data-tab="schedule">
-          <i class="fa-solid fa-calendar-days"></i>
-          <span>Jadwal Acara</span>
-        </a>
-        <a href="#automated" class="nav-item" data-tab="automated">
-          <i class="fa-solid fa-clock"></i>
-          <span>Pesan Otomatis</span>
-        </a>
-        <a href="#admins" class="nav-item" data-tab="admins">
-          <i class="fa-solid fa-user-shield"></i>
-          <span>Kelola Admin</span>
-        </a>
+      <nav class="nav-links">
+        <a href="#beranda" class="active"><i class="fa-solid fa-house"></i> Beranda</a>
+        <a href="#jadwal"><i class="fa-solid fa-calendar-days"></i> Jadwal</a>
+        <a href="#panduan"><i class="fa-solid fa-book-open"></i> Panduan</a>
+        <a href="#status"><i class="fa-solid fa-server"></i> Server</a>
+        <a href="#admin" class="btn-admin-nav" onclick="openAdminModal()"><i class="fa-solid fa-shield-halved"></i> Admin Portal</a>
       </nav>
 
-      <div class="sidebar-footer">
-        <div class="admin-profile">
-          <div class="avatar"><i class="fa-solid fa-shield-halved"></i></div>
-          <div class="info">
-            <span id="loggedAdminName" class="name">Admin</span>
-            <span id="loggedAdminRole" class="role">Lead Organizer</span>
-          </div>
-        </div>
-        <button id="btnLogout" class="btn-logout" title="Logout">
-          <i class="fa-solid fa-arrow-right-from-bracket"></i>
+      <div class="nav-status">
+        <span class="status-indicator online"></span>
+        <span class="status-text" id="navStatusText">Bot Online</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION -->
+  <section id="beranda" class="hero-section">
+    <div class="hero-bg-overlay"></div>
+    <div class="hero-content">
+      <div class="badge-gold">
+        <span class="symbol">𓄲</span> ASCHEN EVENT ORGANIZER OFFICIAL SYSTEM <span class="symbol">𓈒</span>
+      </div>
+      <h1 class="hero-title">
+        MEDIA PARTNER <br><span class="text-gold">ASCHEN EVENT ORGANIZER</span>
+      </h1>
+      <p class="hero-slogan">
+        <em>"Elegant Collaboration, Memorable Celebration"</em>
+      </p>
+      <p class="hero-description">
+        Sistem otomasi resmi pengelolaan publikasi poster Media Partner. Terintegrasi langsung dengan Telegram Bot <strong>@PATNERASCHENBOT</strong>, Channel Siaran Resmi <strong>@ASCHENEO</strong>, dan Channel Pelaporan Terverifikasi.
+      </p>
+
+      <div class="hero-actions">
+        <a href="https://t.me/PATNERASCHENBOT" target="_blank" class="btn btn-gold">
+          <i class="fa-brands fa-telegram"></i> Kirim Poster via Bot
+        </a>
+        <a href="https://t.me/ASCHENEO" target="_blank" class="btn btn-outline">
+          <i class="fa-solid fa-bullhorn"></i> Channel @ASCHENEO
+        </a>
+        <button class="btn btn-dark" onclick="openAdminModal()">
+          <i class="fa-solid fa-lock"></i> Login Admin
         </button>
       </div>
-    </aside>
 
-    <!-- MAIN CONTENT -->
-    <main class="main-content">
-      <!-- TOPBAR -->
-      <header class="topbar">
-        <div class="topbar-left">
-          <h1 id="pageTitle">Ringkasan Sistem</h1>
-          <p id="pageDesc">Sistem Pemesanan Event & Dashboard Operasional</p>
+      <!-- OPERATIONAL HOURS NOTICE -->
+      <div class="operational-banner">
+        <div class="op-icon"><i class="fa-solid fa-clock"></i></div>
+        <div class="op-info">
+          <strong>JAM OPERASIONAL PENGAJUAN POSTER:</strong>
+          <span>Senin – Sabtu aktif mulai pukul <strong>06.00 WIB</strong>. Hari <strong>Minggu TUTUP</strong> (Layanan Libur).</span>
         </div>
-        <div class="topbar-right">
-          <div class="bot-status-pill online">
-            <span class="dot"></span>
-            <span id="botStatusLabel">Sistem Aktif</span>
+        <div class="op-status" id="opStatusBadge">
+          <span class="badge badge-success">BUKA</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LIVE METRICS COUNTER -->
+  <section id="status" class="metrics-section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">REAL-TIME TELEMETRY</span>
+        <h2>Statistik & Status Sistem</h2>
+        <p>Data aktivitas terkini dari bot, antrean poster, dan jadwal siaran.</p>
+      </div>
+
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-icon"><i class="fa-solid fa-inbox"></i></div>
+          <div class="metric-data">
+            <h3 id="statReceived">-</h3>
+            <p>Total Poster Diterima</p>
           </div>
-          <button id="btnRefresh" class="btn btn-secondary" title="Muat Ulang Data">
-            <i class="fa-solid fa-rotate"></i>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon gold"><i class="fa-solid fa-hourglass-half"></i></div>
+          <div class="metric-data">
+            <h3 id="statKeep">-</h3>
+            <p>Antrean Siap Terbit (KEEP)</p>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-icon green"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="metric-data">
+            <h3 id="statPublished">-</h3>
+            <p>Poster Telah Terbit</p>
+          </div>
+        </div>
+
+        <div class="metric-card highlight">
+          <div class="metric-icon"><i class="fa-solid fa-clock-rotate-left"></i></div>
+          <div class="metric-data">
+            <span class="slot-label">Jadwal Terbit Terdekat:</span>
+            <h4 id="statNextSlot">Memuat...</h4>
+            <small id="wibClock">WIB: --:--:--</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- OFFICIAL PUBLISHING SCHEDULE -->
+  <section id="jadwal" class="schedule-section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">ASCHEN OFFICIAL SCHEDULE</span>
+        <h2>Jadwal Publikasi Poster Resmi</h2>
+        <p>Setiap poster yang lolos verifikasi diterbitkan secara otomatis ke channel @ASCHENEO pada jam berikut:</p>
+      </div>
+
+      <div class="schedule-grid">
+        <div class="schedule-card active-day">
+          <div class="card-header">
+            <span class="day">SELASA</span>
+            <span class="time-tag">Pagi</span>
+          </div>
+          <div class="card-time">09.00 <small>WIB</small></div>
+          <p class="card-desc">Sesi publikasi pagi untuk acara kampus & umum.</p>
+        </div>
+
+        <div class="schedule-card">
+          <div class="card-header">
+            <span class="day">RABU</span>
+            <span class="time-tag">Siang</span>
+          </div>
+          <div class="card-time">12.00 <small>WIB</small></div>
+          <p class="card-desc">Sesi publikasi siang untuk seminar & webinar.</p>
+        </div>
+
+        <div class="schedule-card active-day">
+          <div class="card-header">
+            <span class="day">KAMIS</span>
+            <span class="time-tag">Pagi</span>
+          </div>
+          <div class="card-time">09.00 <small>WIB</small></div>
+          <p class="card-desc">Sesi publikasi pagi untuk event kompetisi & workshop.</p>
+        </div>
+
+        <div class="schedule-card">
+          <div class="card-header">
+            <span class="day">JUMAT</span>
+            <span class="time-tag">Siang</span>
+          </div>
+          <div class="card-time">12.00 <small>WIB</small></div>
+          <p class="card-desc">Sesi publikasi siang jelang akhir pekan.</p>
+        </div>
+
+        <div class="schedule-card special-day">
+          <div class="card-header">
+            <span class="day">SABTU</span>
+            <span class="time-tag">Malam</span>
+          </div>
+          <div class="card-time">20.00 <small>WIB</small></div>
+          <p class="card-desc">Sesi publikasi puncak malam minggu festival.</p>
+        </div>
+
+        <div class="schedule-card closed-day">
+          <div class="card-header">
+            <span class="day">MINGGU</span>
+            <span class="time-tag closed">LIBUR</span>
+          </div>
+          <div class="card-time text-muted">TUTUP</div>
+          <p class="card-desc">Layanan libur. Pengajuan diproses Senin pagi.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GUIDELINES SECTION -->
+  <section id="panduan" class="guidelines-section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">TATA CARA PENGAJUAN</span>
+        <h2>Ketentuan Media Partner ASCHEN</h2>
+        <p>Ikuti langkah mudah berikut untuk mengajukan kerja sama media partner:</p>
+      </div>
+
+      <div class="steps-container">
+        <div class="step-item">
+          <div class="step-number">01</div>
+          <div class="step-body">
+            <h3>Buka Bot Telegram Resmi</h3>
+            <p>Mulai percakapan dengan menekan <code>/start</code> pada bot <strong>@PATNERASCHENBOT</strong>.</p>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-number">02</div>
+          <div class="step-body">
+            <h3>Forward Pesan Poster Asli</h3>
+            <p>Teruskan (Forward) pesan poster langsung dari <strong>Channel Publik</strong> penyelenggara acara Anda.</p>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-number">03</div>
+          <div class="step-body">
+            <h3>Penting: Caption Harus Sama Persis</h3>
+            <p>Teks atau caption pada pesan forward tidak boleh diubah, diedit, atau dipotong agar lolos verifikasi sistem.</p>
+          </div>
+        </div>
+
+        <div class="step-item">
+          <div class="step-number">04</div>
+          <div class="step-body">
+            <h3>Verifikasi & Laporan Admin Otomatis</h3>
+            <p>Sistem memvalidasi pesan, mengirimkan notifikasi ke chat pelaporan resmi, dan menjadwalkan ke channel <strong>@ASCHENEO</strong>.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADMIN DASHBOARD MODAL / SECTION -->
+  <div id="adminModal" class="modal-overlay hidden">
+    <div class="modal-window">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span class="symbol-gold">𓄲</span>
+          <h3>PORTAL ADMIN — ASCHEN EVENT ORGANIZER</h3>
+        </div>
+        <button class="btn-close" onclick="closeAdminModal()">&times;</button>
+      </div>
+
+      <!-- LOGIN FORM (IF NOT AUTHENTICATED) -->
+      <div id="adminLoginForm" class="modal-body">
+        <div class="auth-intro">
+          <i class="fa-solid fa-shield-halved auth-icon"></i>
+          <h4>Autentikasi Khusus Admin</h4>
+          <p>Masukkan kata sandi Administrator untuk mengelola antrean poster, device MTProto, dan chat pelaporan.</p>
+        </div>
+
+        <div id="loginError" class="alert-box error hidden"></div>
+
+        <form onsubmit="handleAdminLogin(event)">
+          <div class="form-group">
+            <label><i class="fa-solid fa-key"></i> Kata Sandi Admin:</label>
+            <input type="password" id="adminPasswordInput" placeholder="Masukkan password admin..." required autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn btn-gold btn-block">
+            <i class="fa-solid fa-right-to-bracket"></i> Buka Dashboard Admin
+          </button>
+        </form>
+      </div>
+
+      <!-- DASHBOARD TABS (AFTER AUTHENTICATION) -->
+      <div id="adminDashboardContent" class="modal-body hidden">
+        <div class="admin-nav-tabs">
+          <button class="tab-btn active" onclick="switchAdminTab('tabPosters')">
+            <i class="fa-solid fa-images"></i> Request Poster
+          </button>
+          <button class="tab-btn" onclick="switchAdminTab('tabReports')">
+            <i class="fa-solid fa-clipboard-list"></i> Pelaporan Chat
+          </button>
+          <button class="tab-btn" onclick="switchAdminTab('tabDevices')">
+            <i class="fa-solid fa-mobile-screen"></i> Device MTProto
+          </button>
+          <button class="tab-btn" onclick="switchAdminTab('tabDiagnostics')">
+            <i class="fa-solid fa-gears"></i> Server & Cloud
+          </button>
+          <button class="tab-btn logout" onclick="handleAdminLogout()">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i> Keluar
           </button>
         </div>
-      </header>
 
-      <!-- TAB 1: OVERVIEW -->
-      <section id="tab-overview" class="tab-pane active">
-        <!-- STATS CARDS -->
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="icon-wrap gold"><i class="fa-solid fa-book-bookmark"></i></div>
-            <div class="stat-meta">
-              <span class="label">Total Pemesanan</span>
-              <h2 id="statTotal">0</h2>
-              <small class="trend">Semua kategori formulir</small>
-            </div>
+        <!-- TAB: REQUEST POSTER QUEUE -->
+        <div id="tabPosters" class="tab-pane active">
+          <div class="tab-header">
+            <h4>Daftar Antrean & Publikasi Poster</h4>
+            <button class="btn btn-sm btn-dark" onclick="fetchPosters()"><i class="fa-solid fa-rotate"></i> Refresh</button>
           </div>
-          <div class="stat-card">
-            <div class="icon-wrap amber"><i class="fa-solid fa-hourglass-half"></i></div>
-            <div class="stat-meta">
-              <span class="label">Menunggu Diproses</span>
-              <h2 id="statPending">0</h2>
-              <small class="trend">Formulir baru & menunggu admin</small>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="icon-wrap emerald"><i class="fa-solid fa-circle-check"></i></div>
-            <div class="stat-meta">
-              <span class="label">Diterima / Dikonfirmasi</span>
-              <h2 id="statConfirmed">0</h2>
-              <small class="trend">Acara siap & reservasi tercatat</small>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="icon-wrap blue"><i class="fa-solid fa-champagne-glasses"></i></div>
-            <div class="stat-meta">
-              <span class="label">Acara Selesai</span>
-              <h2 id="statCompleted">0</h2>
-              <small class="trend">Ucapan terima kasih terkirim</small>
-            </div>
-          </div>
-        </div>
-
-        <!-- QUICK SECTIONS -->
-        <div class="two-col-grid">
-          <div class="panel">
-            <div class="panel-header">
-              <h3><i class="fa-solid fa-clock-rotate-left"></i> Formulir Masuk Terbaru</h3>
-              <button class="btn btn-sm btn-outline" onclick="switchTab('bookings')">Lihat Semua</button>
-            </div>
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Booking ID</th>
-                    <th>Pemesan</th>
-                    <th>Kategori</th>
-                    <th>Tanggal Acara</th>
-                    <th>Status</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="overviewRecentTable">
-                  <tr><td colspan="6" class="text-center py-4">Memuat data...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3><i class="fa-solid fa-layer-group"></i> Distribusi Kategori</h3>
-            </div>
-            <div id="categoryDistribution" class="category-dist-list">
-              <!-- populated by JS -->
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 2: BOOKINGS LIST -->
-      <section id="tab-bookings" class="tab-pane">
-        <div class="panel">
-          <div class="panel-header flex-between">
-            <div class="filters-row">
-              <div class="search-box">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="bookingSearchInput" placeholder="Cari Booking ID, nama, atau @username...">
-              </div>
-              <select id="filterCategory" class="custom-select">
-                <option value="">Semua Kategori</option>
-                <option value="wedding">Wedding Party</option>
-                <option value="birthday">Birthday Party</option>
-                <option value="engagement">Engagement Party</option>
-                <option value="mensive_family_couple">Mensive Family / Couple</option>
-                <option value="mensive_channel_vvip">Mensive Channel VVIP</option>
-                <option value="promnight_graduation">Promnight / Graduation</option>
-              </select>
-              <select id="filterStatus" class="custom-select">
-                <option value="">Semua Status</option>
-                <option value="Formulir Terkirim">Formulir Terkirim</option>
-                <option value="Menunggu Balasan Admin">Menunggu Balasan Admin</option>
-                <option value="Booking Diterima">Booking Diterima</option>
-                <option value="Booking Ditolak">Booking Ditolak</option>
-                <option value="Menunggu Reservasi Tempat">Menunggu Reservasi Tempat</option>
-                <option value="Reservasi Tempat Tercatat">Reservasi Tempat Tercatat</option>
-                <option value="Booking Dikonfirmasi">Booking Dikonfirmasi</option>
-                <option value="Booking Selesai">Booking Selesai</option>
-                <option value="Booking Dibatalkan">Booking Dibatalkan</option>
-              </select>
-            </div>
-          </div>
-
           <div class="table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Booking ID</th>
-                  <th>Pemesan</th>
-                  <th>Kategori</th>
-                  <th>Tanggal Acara</th>
-                  <th>Jam</th>
+                  <th>ID</th>
+                  <th>Pengirim</th>
+                  <th>Tipe</th>
+                  <th>Jadwal Terbit</th>
                   <th>Status</th>
-                  <th>Waktu Pengiriman</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
-              <tbody id="bookingsTableBody">
-                <!-- populated by JS -->
+              <tbody id="postersTableBody">
+                <tr><td colspan="6" class="text-center">Memuat antrean...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
-      </section>
 
-      <!-- TAB 3: JADWAL ACARA -->
-      <section id="tab-schedule" class="tab-pane">
-        <div class="panel">
-          <div class="panel-header">
-            <h3><i class="fa-solid fa-calendar-check"></i> Agenda Pelaksanaan Acara</h3>
-            <p class="panel-desc">Seluruh acara yang telah diterima dan dikonfirmasi jadwalnya.</p>
-          </div>
-          <div id="scheduleTimeline" class="schedule-timeline">
-            <!-- populated by JS -->
-          </div>
-        </div>
-      </section>
-
-      <!-- TAB 4: AUTOMATED MESSAGES -->
-      <section id="tab-automated" class="tab-pane">
-        <div class="panel">
-          <div class="panel-header">
-            <div>
-              <h3><i class="fa-solid fa-paper-plane"></i> Jadwal Pesan Ucapan Terima Kasih Otomatis</h3>
-              <p class="panel-desc">Sistem otomatis mengirimkan pesan pada tanggal acara pukul 19.00 WIB (UTC+7) ke pemesan.</p>
-            </div>
+        <!-- TAB: CHAT REPORTS -->
+        <div id="tabReports" class="tab-pane">
+          <div class="tab-header">
+            <h4>Laporan Request Poster</h4>
+            <button class="btn btn-sm btn-dark" onclick="fetchReports()"><i class="fa-solid fa-rotate"></i> Refresh</button>
           </div>
           <div class="table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Booking ID</th>
-                  <th>Pemesan</th>
-                  <th>Tanggal Acara</th>
-                  <th>Jadwal Kirim (19.00 WIB)</th>
-                  <th>Status Pengiriman</th>
-                  <th>Waktu Terkirim</th>
-                  <th>Aksi / Uji Coba</th>
+                  <th>ID</th>
+                  <th>Instansi / Pengirim</th>
+                  <th>Waktu Pengajuan</th>
+                  <th>Status</th>
+                  <th>Diproses Oleh</th>
+                  <th>Aksi Cepat</th>
                 </tr>
               </thead>
-              <tbody id="schedulesTableBody">
-                <!-- populated by JS -->
+              <tbody id="reportsTableBody">
+                <tr><td colspan="6" class="text-center">Memuat laporan...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
-      </section>
 
-      <!-- TAB 5: ADMINS -->
-      <section id="tab-admins" class="tab-pane">
-        <div class="two-col-grid">
-          <div class="panel">
-            <div class="panel-header">
-              <h3><i class="fa-solid fa-users"></i> Daftar Admin Terdaftar</h3>
-            </div>
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Username</th>
-                    <th>Nama</th>
-                    <th>Telegram ID</th>
-                    <th>Role</th>
-                  </tr>
-                </thead>
-                <tbody id="adminsTableBody">
-                  <!-- populated by JS -->
-                </tbody>
-              </table>
-            </div>
+        <!-- TAB: DEVICES MTPROTO -->
+        <div id="tabDevices" class="tab-pane">
+          <div class="tab-header">
+            <h4>Manajemen Perangkat Terhubung (MTProto)</h4>
+            <button class="btn btn-sm btn-dark" onclick="fetchDevices()"><i class="fa-solid fa-rotate"></i> Refresh</button>
           </div>
-
-          <div class="panel">
-            <div class="panel-header">
-              <h3><i class="fa-solid fa-user-plus"></i> Tambah Admin Baru</h3>
-            </div>
-            <form id="addAdminForm" class="p-3">
-              <div class="form-group">
-                <label>Nama Lengkap</label>
-                <input type="text" id="newAdminName" placeholder="contoh: Elias Maurits" required>
-              </div>
-              <div class="form-group">
-                <label>Username Login</label>
-                <input type="text" id="newAdminUsername" placeholder="contoh: elias" required>
-              </div>
-              <div class="form-group">
-                <label>Kata Sandi</label>
-                <input type="password" id="newAdminPassword" placeholder="Minimal 6 karakter" required>
-              </div>
-              <div class="form-group">
-                <label>Telegram User ID (Opsional)</label>
-                <input type="number" id="newAdminTelegramId" placeholder="ID numerik telegram">
-              </div>
-              <button type="submit" class="btn btn-gold btn-block">
-                <i class="fa-solid fa-plus"></i> Simpan Admin Baru
-              </button>
-            </form>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Device ID</th>
+                  <th>Admin</th>
+                  <th>Nomor HP</th>
+                  <th>Perangkat</th>
+                  <th>Waktu Login</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="devicesTableBody">
+                <tr><td colspan="6" class="text-center">Memuat perangkat...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <!-- NOTIFICATION CHANNELS PANEL -->
-        <div class="panel mt-3">
-          <div class="panel-header flex-between">
-            <div>
-              <h3><i class="fa-solid fa-bullhorn"></i> Saluran Notifikasi Booking (Telegram Channel / Group)</h3>
-              <p class="panel-desc">Bot akan otomatis meneruskan setiap pemesanan baru yang masuk ke seluruh saluran di bawah ini.</p>
-            </div>
-            <button id="btnTestChannelAlert" class="btn btn-sm btn-gold">
-              <i class="fa-solid fa-paper-plane"></i> Uji Coba Kirim Notifikasi
-            </button>
+        <!-- TAB: DIAGNOSTICS & CLOUD -->
+        <div id="tabDiagnostics" class="tab-pane">
+          <div class="tab-header">
+            <h4>Pengaturan Server & Cloud Sinkronisasi</h4>
           </div>
-          <div class="p-3" style="background: rgba(197, 160, 89, 0.05); border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
-            💡 <strong>Cara Menghubungkan Channel:</strong> Cukup undang bot <code>@ASCHENBOOKBOT</code> ke dalam Channel atau Group Anda sebagai <strong>Administrator</strong>. Bot akan otomatis mendeteksi dan mengaktifkan notifikasi secara instan!
-          </div>
-          <div class="two-col-grid p-3">
-            <div class="table-responsive">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>Nama Channel / Group</th>
-                    <th>ID / Username</th>
-                    <th>Waktu Terhubung</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="channelsTableBody">
-                  <tr><td colspan="4" class="text-center py-3 text-sub">Memuat daftar saluran...</td></tr>
-                </tbody>
-              </table>
-            </div>
 
-            <div>
-              <h4 style="color: #fff; font-size: 0.95rem; margin-bottom: 0.8rem;">Daftarkan Channel Secara Manual:</h4>
-              <form id="addChannelForm">
-                <div class="form-group">
-                  <label>ID atau Username Channel</label>
-                  <input type="text" id="manualChannelId" placeholder="contoh: @NamaChannel atau -100123456789" required>
-                </div>
-                <div class="form-group">
-                  <label>Nama Saluran (Label)</label>
-                  <input type="text" id="manualChannelTitle" placeholder="contoh: Channel Notifikasi ASCHEN">
-                </div>
-                <button type="submit" class="btn btn-secondary btn-block">
-                  <i class="fa-solid fa-link"></i> Hubungkan Saluran
+          <div class="diagnostic-grid">
+            <div class="diag-card">
+              <h5><i class="fa-brands fa-telegram"></i> Webhook Telegram Bot</h5>
+              <p>URL Webhook: <code id="webhookUrlDisplay">/api/mediapatner-webhook</code></p>
+              <div class="diag-actions">
+                <button class="btn btn-sm btn-gold" onclick="checkWebhookInfo()">
+                  <i class="fa-solid fa-magnifying-glass"></i> Cek Status Webhook
                 </button>
-              </form>
-            </div>
-          </div>
-        </div>
-
-        <!-- DOMAIN & WEBHOOK INTEGRATION PANEL (VERCEL / CUSTOM DOMAIN) -->
-        <div class="panel mt-3">
-          <div class="panel-header flex-between">
-            <div>
-              <h3><i class="fa-solid fa-globe"></i> Pengaturan Domain & Webhook Telegram (Vercel)</h3>
-              <p class="panel-desc">Kelola integrasi Telegram Webhook langsung dengan Domain Kustom Anda di Vercel.</p>
-            </div>
-            <button id="btnCheckWebhook" class="btn btn-sm btn-outline">
-              <i class="fa-solid fa-arrows-rotate"></i> Cek Status Webhook
-            </button>
-          </div>
-          <div class="p-3" style="background: rgba(197, 160, 89, 0.05); border-bottom: 1px solid var(--border-color); font-size: 0.85rem;">
-            🌐 <strong>Domain Web Saat Ini:</strong> <code id="currentDomainLabel">Memuat domain...</code><br>
-            📡 <strong>Status Integrasi Bot:</strong> <span id="webhookStatusBadge" class="badge">Memeriksa...</span>
-          </div>
-          <div class="p-3">
-            <div style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem;">
-              Saat di-deploy di <strong>Vercel</strong> dengan Custom Domain, bot Telegram menggunakan endpoint <code>/api/webhook</code> untuk menerima interaksi pengunjung secara real-time. Anda dapat menyambungkan atau memutus webhook dengan satu klik di bawah:
-            </div>
-            <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.8rem; margin-bottom: 1.2rem; font-family: monospace; font-size: 0.82rem; color: #dcdcdc;" id="webhookDetailsBox">
-              Webhook URL: Memeriksa...
-            </div>
-            <div style="display: flex; gap: 0.8rem; flex-wrap: wrap;">
-              <button id="btnConnectWebhook" class="btn btn-gold">
-                <i class="fa-solid fa-link"></i> Sambungkan Webhook ke Domain Ini
-              </button>
-              <button id="btnDisconnectWebhook" class="btn btn-secondary">
-                <i class="fa-solid fa-link-slash"></i> Hapus Webhook (Mode Polling Lokal)
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-    </main>
-  </div>
-
-  <!-- BOOKING DETAIL MODAL -->
-  <div id="bookingModal" class="modal-backdrop hidden">
-    <div class="modal-card">
-      <div class="modal-header">
-        <div class="modal-title">
-          <span class="symbol-sm">𓄲</span>
-          <div>
-            <h3 id="modalBookingId">ASC-WED-0000</h3>
-            <span id="modalCategoryBadge" class="badge">Wedding Party</span>
-          </div>
-        </div>
-        <button id="btnModalClose" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
-      </div>
-
-      <div class="modal-body">
-        <div class="modal-grid">
-          <!-- LEFT: Form Preview & Venue Details -->
-          <div class="modal-column">
-            <div class="section-box">
-              <div class="section-header">
-                <h4><i class="fa-solid fa-scroll"></i> Format Formulir Resmi ASCHEN</h4>
-                <button id="btnCopyForm" class="btn btn-xs btn-outline"><i class="fa-solid fa-copy"></i> Salin Teks</button>
+                <button class="btn btn-sm btn-outline" onclick="registerWebhook()">
+                  <i class="fa-solid fa-link"></i> Re-Register Webhook
+                </button>
               </div>
-              <pre id="modalFormRendered" class="form-preview-box"></pre>
+              <div id="webhookResult" class="code-box hidden"></div>
             </div>
 
-            <!-- Venue Details if exists -->
-            <div id="modalVenueSection" class="section-box hidden">
-              <div class="section-header">
-                <h4><i class="fa-solid fa-users-rectangle"></i> Tautan Ruang Reservasi & Pertemuan</h4>
-              </div>
-              <pre id="modalVenueRendered" class="form-preview-box venue-box"></pre>
-            </div>
-          </div>
-
-          <!-- RIGHT: Controls, Status, 2-Way Chat, Audit Trail -->
-          <div class="modal-column">
-            <!-- STATUS CONTROLS -->
-            <div class="section-box">
-              <div class="section-header">
-                <h4><i class="fa-solid fa-sliders"></i> Tindakan & Status Booking</h4>
-              </div>
-              <div class="action-buttons-row">
-                <button id="btnAcceptBooking" class="btn btn-success btn-sm"><i class="fa-solid fa-check"></i> Terima Booking</button>
-                <button id="btnRejectBooking" class="btn btn-danger btn-sm"><i class="fa-solid fa-ban"></i> Tolak Booking</button>
-                <button id="btnSendVenueForm" class="btn btn-gold btn-sm"><i class="fa-solid fa-link"></i> Kirim Link Ruang Pertemuan</button>
-              </div>
-
-              <div class="status-change-group mt-3">
-                <label>Ubah Status Secara Spesifik:</label>
-                <div class="flex-row">
-                  <select id="modalStatusSelect" class="custom-select"></select>
-                  <button id="btnUpdateStatus" class="btn btn-primary btn-sm">Update Status</button>
-                </div>
-              </div>
-
-              <div class="date-change-group mt-3">
-                <label>Ubah Tanggal Acara & Jadwal Ucapan:</label>
-                <div class="flex-row">
-                  <input type="text" id="modalEventDateInput" placeholder="DD/MM/YYYY" class="custom-input">
-                  <button id="btnUpdateDate" class="btn btn-secondary btn-sm">Perbarui Tanggal</button>
-                </div>
+            <div class="diag-card">
+              <h5><i class="fa-solid fa-bullhorn"></i> Chat Tujuan Pelaporan</h5>
+              <p>Chat ID saat ini: <strong id="currentReportChatId">-1004479248551</strong></p>
+              <div class="form-row">
+                <input type="text" id="newReportChatInput" placeholder="Masukkan ID channel/group baru...">
+                <button class="btn btn-sm btn-gold" onclick="saveNewReportChat()">Simpan</button>
               </div>
             </div>
 
-            <!-- TWO WAY CHAT -->
-            <div class="section-box chat-box-wrapper">
-              <div class="section-header">
-                <h4><i class="fa-solid fa-comments"></i> Komunikasi Dua Arah dengan Pemesan</h4>
-                <small class="live-tag"><i class="fa-solid fa-circle text-success"></i> Terhubung ke Bot</small>
+            <div class="diag-card">
+              <h5><i class="fa-solid fa-bolt"></i> Manual Cron & Cloud DB</h5>
+              <p>Jalankan cron publikasi sekarang atau sinkronkan snapshot SQLite ke Vercel Blob.</p>
+              <div class="diag-actions">
+                <button class="btn btn-sm btn-dark" onclick="triggerManualCron()">
+                  <i class="fa-solid fa-play"></i> Trigger Cron Publikasi
+                </button>
               </div>
-              <div id="chatMessagesContainer" class="chat-messages-container">
-                <!-- populated by JS -->
-              </div>
-              <form id="chatForm" class="chat-input-bar">
-                <input type="text" id="chatInputText" placeholder="Ketik pesan untuk dikirim ke bot pemesan..." required autocomplete="off">
-                <button type="submit" class="btn btn-gold btn-sm"><i class="fa-solid fa-paper-plane"></i> Kirim</button>
-              </form>
+              <div id="cronResult" class="code-box hidden"></div>
             </div>
-
-            <!-- STATUS HISTORY / AUDIT TRAIL -->
-            <div class="section-box">
-              <div class="section-header">
-                <h4><i class="fa-solid fa-timeline"></i> Riwayat Perubahan Status</h4>
-              </div>
-              <div id="modalStatusHistory" class="history-timeline">
-                <!-- populated by JS -->
-              </div>
-            </div>
-
           </div>
         </div>
       </div>
     </div>
   </div>
 
-  <div id="toastNotification" class="toast hidden"></div>
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container footer-content">
+      <div class="footer-brand">
+        <span class="symbol-gold">𓄲</span>
+        <h3>ASCHEN EVENT ORGANIZER</h3>
+        <p>With Love, ASCHEN EVENT ORGANIZER. <br><em>"Elegant Collaboration, Memorable Celebration"</em></p>
+      </div>
+      <div class="footer-links">
+        <h4>Tautan Resmi</h4>
+        <a href="https://t.me/ASCHENEO" target="_blank"><i class="fa-solid fa-bullhorn"></i> Official Channel @ASCHENEO</a>
+        <a href="https://t.me/PATNERASCHENBOT" target="_blank"><i class="fa-brands fa-telegram"></i> Media Partner Bot @PATNERASCHENBOT</a>
+        <a href="https://t.me/ASCHENOFFICIAL/7" target="_blank"><i class="fa-solid fa-star"></i> Guest Star Resmi ASCHEN</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>&copy; 2026 ASCHEN EVENT ORGANIZER. Seluruh hak cipta dilindungi.</p>
+    </div>
+  </footer>
 
-  <script src="/js/dashboard.js"></script>
+  <script src="/js/app.js"></script>
 </body>
 </html>

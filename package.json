@@ -1,7 +1,7 @@
 {
-  "name": "aschen-booking-bot",
+  "name": "aschen-media-partner",
   "version": "1.0.0",
-  "description": "Telegram Bot & Admin Dashboard System for ASCHEN EVENT ORGANIZER",
+  "description": "Media Partner Bot (@PATNERASCHENBOT) & Web Portal System for ASCHEN EVENT ORGANIZER",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
