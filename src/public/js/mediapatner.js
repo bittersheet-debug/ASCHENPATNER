@@ -106,10 +106,26 @@ function showDashboardView() {
 
 // Admin Login
 async function handleAdminLogin(e) {
-  e.preventDefault();
+  if (e && e.preventDefault) e.preventDefault();
   const passwordInput = document.getElementById("adminPasswordInput");
   const errorBox = document.getElementById("loginError");
-  const password = passwordInput.value.trim();
+  const submitBtn = e && e.target ? e.target.querySelector('button[type="submit"]') : null;
+  const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
+
+  const password = passwordInput ? passwordInput.value.trim() : '';
+
+  if (!password) {
+    if (errorBox) {
+      errorBox.textContent = "Silakan masukkan password admin (aschen2026).";
+      errorBox.classList.remove("hidden");
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Memverifikasi...';
+  }
 
   try {
     const res = await fetch("/api/mediapatner-api", {
@@ -123,15 +139,24 @@ async function handleAdminLogin(e) {
       isAdminLoggedIn = true;
       adminSessionToken = data.token;
       localStorage.setItem("aschen_admin_session", data.token);
-      errorBox.classList.add("hidden");
+      if (errorBox) errorBox.classList.add("hidden");
       showDashboardView();
     } else {
-      errorBox.textContent = data.error || "Password salah.";
-      errorBox.classList.remove("hidden");
+      if (errorBox) {
+        errorBox.textContent = data.error || "Password salah. Masukkan: aschen2026";
+        errorBox.classList.remove("hidden");
+      }
     }
   } catch (err) {
-    errorBox.textContent = "Gagal menghubungi server.";
-    errorBox.classList.remove("hidden");
+    if (errorBox) {
+      errorBox.textContent = "Gagal menghubungi server. Silakan coba lagi.";
+      errorBox.classList.remove("hidden");
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalBtnText;
+    }
   }
 }
 

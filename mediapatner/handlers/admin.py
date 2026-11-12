@@ -89,7 +89,7 @@ class AdminReportChatStates(StatesGroup):
 
 def is_admin_check(user_id: int, settings: Settings) -> bool:
     """Checks if the user has authenticated with the admin password."""
-    return user_id in AUTHENTICATED_ADMINS
+    return user_id in AUTHENTICATED_ADMINS or settings.is_admin(user_id)
 
 
 def mask_phone_number(phone: str) -> str:
@@ -150,14 +150,35 @@ async def handle_admin_command(
 ):
     """
     Section 10: Admin Dashboard Authentication & Overview
-    Prompts for password: aschen2026
+    Prompts for password: aschen2026 or accepts directly: /admin aschen2026
     """
     user = message.from_user
     if not user:
         return
 
+    # Check if password was supplied directly in command: /admin aschen2026
+    parts = (message.text or "").strip().split(maxsplit=1)
+    if len(parts) > 1 and parts[1].strip() == settings.admin_password:
+        AUTHENTICATED_ADMINS.add(user.id)
+        await state.clear()
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "🔓 *Autentikasi Berhasil!*\nSelamat datang di Dashboard Administrator ASCHEN.",
+            parse_mode="Markdown",
+        )
+        text = await render_overview_text(repository, settings)
+        await message.answer(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=get_admin_main_keyboard(),
+        )
+        return
+
     # If already authenticated in session, show dashboard immediately
-    if user.id in AUTHENTICATED_ADMINS:
+    if user.id in AUTHENTICATED_ADMINS or settings.is_admin(user.id):
         text = await render_overview_text(repository, settings)
         await message.answer(
             text=text,
@@ -172,7 +193,8 @@ async def handle_admin_command(
         "𓄲 MEDIAPATNER — ADMIN AUTHENTICATION 𓈒\n"
         "ASCHEN EVENT ORGANIZER\n\n"
         "🔒 *Akses Dashboard Administrator Terkunci.*\n"
-        "Silakan ketik password administrator untuk melanjutkan:",
+        "Silakan ketik password administrator untuk melanjutkan:\n\n"
+        "💡 *Tips:* Anda juga dapat mengetik `/admin aschen2026` secara langsung.",
         parse_mode="Markdown",
     )
 

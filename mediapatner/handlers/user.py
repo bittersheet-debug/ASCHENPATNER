@@ -190,6 +190,27 @@ async def handle_poster_submission(
     if message.text and message.text.startswith("/"):
         return
 
+    # Check if user sent the admin password directly (e.g. following /admin prompt)
+    if message.text and message.text.strip() == settings.admin_password:
+        from mediapatner.handlers.admin import AUTHENTICATED_ADMINS, render_overview_text
+        from mediapatner.keyboards.admin_kb import get_admin_main_keyboard
+        AUTHENTICATED_ADMINS.add(user.id)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "🔓 *Autentikasi Berhasil!*\nSelamat datang di Dashboard Administrator ASCHEN.",
+            parse_mode="Markdown",
+        )
+        text = await render_overview_text(repository, settings)
+        await message.answer(
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=get_admin_main_keyboard(),
+        )
+        return
+
     # Operational Hours Enforcement (Senin–Sabtu >= 06.00 WIB, Minggu TUTUP)
     op_config = await repository.get_operational_config()
     is_allowed, op_reason, op_msg = check_submission_allowed(op_config)
