@@ -2,6 +2,22 @@
   "version": 2,
   "rewrites": [
     {
+      "source": "/api/webhook",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/api/setup-webhook",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/api/booking-setup-webhook",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/api/webhook-info",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/api/mediapatner-webhook",
       "destination": "/api/mediapatner_webhook.py"
     },

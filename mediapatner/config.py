@@ -33,18 +33,18 @@ class Settings(BaseSettings):
         if mp_token and ":" in mp_token:
             return SecretStr(mp_token.strip())
 
-        # 2. Inspect value from validation_alias BOT_TOKEN
+        # 2. Inspect value from validation_alias (only accept if it's the official Media Partner bot token)
         raw = ""
         if isinstance(v, SecretStr):
             raw = v.get_secret_value().strip()
         elif v is not None:
             raw = str(v).strip()
 
-        # If it's valid and looks like telegram token
-        if raw and ":" in raw and "YOUR_" not in raw:
+        # Only accept if it starts with 9068 (Media Partner Bot), otherwise use fallback
+        if raw and raw.startswith("9068"):
             return SecretStr(raw)
 
-        # 3. Fallback to official Media Partner Bot Token
+        # 3. Fallback to official Media Partner Bot Token (@PATNERASCHENBOT)
         return SecretStr("9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4")
 
     # Main Broadcast Channel Configuration

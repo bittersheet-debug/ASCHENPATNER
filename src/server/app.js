@@ -431,8 +431,8 @@ function createServer(botInstance, io) {
     }
   });
 
-  // Setup Telegram Webhook to Custom Domain or Vercel URL
-  app.all('/api/setup-webhook', async (req, res) => {
+  // Setup Telegram Webhook for ASCHEN EVENT ORGANIZER | BOOKING BOT (@ASCHENBOOKBOT)
+  app.all(['/api/setup-webhook', '/api/booking-setup-webhook'], async (req, res) => {
     if (!botInstance) {
       return res.status(500).json({ error: 'Bot belum diinisialisasi. Pastikan BOT_TOKEN terisi di .env atau Vercel Environment Variables.' });
     }
@@ -521,7 +521,7 @@ function createServer(botInstance, io) {
   });
 
   // --- MEDIA PARTNER ASCHEN EVENT ORGANIZER API (@PATNERASCHENBOT) ---
-  const MEDIAPATNER_TOKEN = process.env.BOT_TOKEN || '9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4';
+  const MEDIAPATNER_TOKEN = process.env.MEDIAPATNER_BOT_TOKEN || '9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4';
   const MP_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'aschen2026';
 
   app.get('/api/mediapatner-api', async (req, res) => {

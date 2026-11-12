@@ -3,9 +3,14 @@ const path = require('path');
 
 const isVercel = !!(process.env.VERCEL || process.env.VERCEL_ENV || process.env.NOW_REGION);
 
+// Dedicated Booking Bot Token (@ASCHENBOOKBOT)
+const bookingBotToken = process.env.BOOKING_BOT_TOKEN || process.env.BOT_TOKEN || '9136985528:AAHUyI2NMUWWU8JuT3ogDTMFCUNkcW3pdjs';
+
 module.exports = {
   IS_VERCEL: isVercel,
-  BOT_TOKEN: process.env.BOT_TOKEN || '',
+  BOT_TOKEN: bookingBotToken,
+  BOOKING_BOT_TOKEN: bookingBotToken,
+  MEDIAPATNER_BOT_TOKEN: process.env.MEDIAPATNER_BOT_TOKEN || '9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4',
   PORT: parseInt(process.env.PORT, 10) || 3000,
   ADMIN_TELEGRAM_IDS: (process.env.ADMIN_TELEGRAM_IDS || '')
     .split(',')
