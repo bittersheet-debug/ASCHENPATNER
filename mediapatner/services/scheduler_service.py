@@ -129,6 +129,12 @@ def calculate_next_wib_slot(now_dt: Optional[datetime] = None) -> Tuple[datetime
     return chosen_slot, day_str, date_str, time_str
 
 
+def get_next_official_slot(now_dt: Optional[datetime] = None) -> datetime:
+    """Returns next official slot datetime."""
+    chosen_slot, _, _, _ = calculate_next_wib_slot(now_dt)
+    return chosen_slot
+
+
 class SchedulerService:
     def __init__(
         self,

@@ -17,7 +17,11 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from mediapatner.config import get_settings
 from mediapatner.database.db import Database
 from mediapatner.database.repository import Repository
-from mediapatner.services.scheduler_service import get_current_wib, get_next_official_slot
+from mediapatner.services.scheduler_service import (
+    get_current_wib,
+    get_next_official_slot,
+    calculate_next_wib_slot,
+)
 from mediapatner.database.blob_sync import save_to_blob
 
 
@@ -30,7 +34,7 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
     now_wib = get_current_wib()
     is_sunday = now_wib.weekday() == 6
     is_open = not is_sunday and now_wib.hour >= 6
-    next_slot = get_next_official_slot(now_wib)
+    next_slot, slot_day, slot_date, slot_time = calculate_next_wib_slot(now_wib)
 
     if action == "status" or not action:
         stats = await repo.get_system_stats()
@@ -52,7 +56,7 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
             },
             "next_slot": {
                 "iso": next_slot.isoformat(),
-                "display": next_slot.strftime("%A, %d %B %Y pukul %H.%M WIB"),
+                "display": f"{slot_day}, {slot_date} pukul {slot_time} WIB",
             },
             "stats": {
                 "total_received": stats.total_links_received,
