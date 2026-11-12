@@ -22,10 +22,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+_app = None
+
+
+def get_app() -> MediaPatnerApplication:
+    global _app
+    if _app is None:
+        settings = get_settings()
+        _app = MediaPatnerApplication(settings)
+    return _app
+
+
 async def process_telegram_update(update_data: dict) -> bool:
-    settings = get_settings()
-    # Create fresh application instance bound to the current event loop
-    app = MediaPatnerApplication(settings)
+    app = get_app()
     try:
         # Ensure database is initialized
         await app.db.init()
@@ -42,11 +51,13 @@ async def process_telegram_update(update_data: dict) -> bool:
 
         return True
     finally:
-        # Crucial: Always close aiohttp session and database connection for this loop
+        # Crucial: Always close aiohttp session and reset _session so next event loop creates a fresh client
         try:
             await app.bot.session.close()
         except Exception:
             pass
+        if hasattr(app.bot.session, "_session"):
+            app.bot.session._session = None
 
 
 class handler(BaseHTTPRequestHandler):
