@@ -373,6 +373,17 @@
           </div>
 
           <div class="diagnostic-grid">
+            <div class="diag-card highlight">
+              <h5><i class="fa-solid fa-satellite-dish"></i> Ping Channel Siaran (@ASCHENEO)</h5>
+              <p>Periksa koneksi, hak admin bot, izin post, dan latensi ke channel utama @ASCHENEO.</p>
+              <div class="diag-actions">
+                <button class="btn btn-sm btn-gold" onclick="pingBroadcastChannel()">
+                  <i class="fa-solid fa-bolt"></i> Ping Channel Sekarang
+                </button>
+              </div>
+              <div id="pingChannelResult" class="code-box hidden"></div>
+            </div>
+
             <div class="diag-card">
               <h5><i class="fa-brands fa-telegram"></i> Webhook Telegram Bot</h5>
               <p>URL Webhook: <code id="webhookUrlDisplay">/api/mediapatner-webhook</code></p>

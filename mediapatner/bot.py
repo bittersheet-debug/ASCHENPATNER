@@ -45,12 +45,17 @@ class MediaPatnerApplication:
         # Services
         self.processor = PosterProcessor(self.repository)
         self.notification_service = NotificationService(self.bot, self.settings)
-        self.report_service = ReportService(self.bot, self.repository, self.settings)
         self.publisher_service = PublisherService(
             bot=self.bot,
             settings=self.settings,
             repository=self.repository,
             notification_service=self.notification_service,
+        )
+        self.report_service = ReportService(
+            bot=self.bot,
+            repository=self.repository,
+            settings=self.settings,
+            publisher_service=self.publisher_service,
         )
         self.scheduler_service = SchedulerService(
             repository=self.repository,

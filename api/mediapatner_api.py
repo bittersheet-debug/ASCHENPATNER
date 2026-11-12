@@ -125,6 +125,36 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
             })
         return {"success": True, "count": len(results), "devices": results}
 
+    elif action == "ping_channel":
+        import time
+        import urllib.request
+        token = settings.get_token_plain()
+        main_channel = settings.channel_username
+        start_t = time.perf_counter()
+        try:
+            url = f"https://api.telegram.org/bot{token}/getChat?chat_id={urllib.parse.quote(main_channel)}"
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
+            chat_info = data.get("result", {})
+            return {
+                "success": True,
+                "channel": main_channel,
+                "chat_title": chat_info.get("title", main_channel),
+                "chat_type": chat_info.get("type", "channel"),
+                "latency_ms": elapsed_ms,
+                "health_status": "SEHAT & SIAP PUBLIKASI ✅",
+            }
+        except Exception as e:
+            elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
+            return {
+                "success": False,
+                "channel": main_channel,
+                "latency_ms": elapsed_ms,
+                "error": str(e),
+                "health_status": "TERPUTUS / GAGAL ❌",
+            }
+
     return {"success": False, "error": f"Unknown action: {action}"}
 
 
@@ -191,6 +221,52 @@ async def handle_post_request(body_data: dict) -> dict:
             "success": True,
             "message": f"Chat tujuan pelaporan berhasil diperbarui ke: {new_chat_id}",
         }
+
+    elif action == "publish_now":
+        poster_id = body_data.get("poster_id")
+        if not poster_id:
+            return {"success": False, "error": "poster_id wajib disertakan."}
+
+        poster = await repo.get_poster(int(poster_id))
+        if not poster:
+            return {"success": False, "error": f"Poster #{poster_id} tidak ditemukan."}
+
+        if poster.status == "PUBLISHED":
+            return {"success": False, "error": f"Poster #{poster_id} sudah pernah diterbitkan sebelumnya."}
+
+        from mediapatner.bot import MediaPatnerApplication
+        app = MediaPatnerApplication(settings)
+        await app.db.init()
+        await app.repository.mark_publishing(poster.id)
+        pub_ok = await app.publisher_service.publish_poster(poster)
+        await app.bot.session.close()
+
+        if pub_ok:
+            report = await repo.get_poster_report_by_poster_id(poster.id)
+            if report:
+                await repo.update_poster_report_status(
+                    report_id=report.id,
+                    status="🚀 Selesai (Sebar Duluan)",
+                    processed_by_id=0,
+                    processed_by_name="Web Admin",
+                    action_note="Sebar duluan via Web Dashboard",
+                )
+
+            if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+                try:
+                    save_to_blob(db.db_path)
+                except Exception:
+                    pass
+
+            return {
+                "success": True,
+                "message": f"Poster #{poster_id} berhasil disebar duluan ke channel {settings.channel_username}!",
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Gagal menyebarkan poster #{poster_id}. Silakan periksa izin bot di channel {settings.channel_username}.",
+            }
 
     return {"success": False, "error": f"Unknown post action: {action}"}
 

@@ -42,6 +42,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📜 User Activity", callback_data="admin_menu:activity:0"),
             ],
             [
+                InlineKeyboardButton(text="📡 Ping Channel Siaran", callback_data="admin_menu:ping_channel"),
                 InlineKeyboardButton(text="⚙️ Bot Settings", callback_data="admin_menu:settings"),
             ],
             [
@@ -261,9 +262,19 @@ def get_request_list_keyboard(
 
 
 def get_request_detail_keyboard(
-    report_id: int, status: str, page: int
+    report_id: int, status: str, page: int, poster_id: Optional[int] = None
 ) -> InlineKeyboardMarkup:
     buttons = []
+    p_id = poster_id if poster_id is not None else 0
+    if status in ("Menunggu Diproses", "Diterima", "KEEP"):
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text="🚀 Sebar Duluan ke Channel",
+                    callback_data=f"rpt_act:{report_id}:publish_now:{p_id}",
+                )
+            ]
+        )
     if status == "Menunggu Diproses":
         buttons.append(
             [
@@ -365,7 +376,7 @@ def get_poster_detail_keyboard(
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text="🚀 Publikasi Sekarang",
+                    text="🚀 Sebar Duluan ke @ASCHENEO",
                     callback_data=f"poster_act:publish:{poster_id}",
                 )
             ]
@@ -478,6 +489,21 @@ def get_settings_keyboard(auto_forward_enabled: bool) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="🔒 Notification Channel: PERMANENT",
                     callback_data="noop_permanent_info",
+                )
+            ],
+            [get_back_to_admin_button()],
+        ]
+    )
+
+
+def get_ping_channel_keyboard() -> InlineKeyboardMarkup:
+    """Diagnostic keyboard for broadcast channel ping."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Cek Ulang Ping Channel",
+                    callback_data="admin_menu:ping_channel",
                 )
             ],
             [get_back_to_admin_button()],

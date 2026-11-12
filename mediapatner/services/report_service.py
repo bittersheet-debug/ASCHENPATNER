@@ -7,7 +7,7 @@ enforces anti-double-processing, and notifies the submitting Media Partner.
 
 import json
 import logging
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -21,10 +21,17 @@ from mediapatner.services.scheduler_service import get_current_wib
 logger = logging.getLogger(__name__)
 
 
-def get_report_action_keyboard(report_id: int) -> InlineKeyboardMarkup:
-    """Action buttons attached to the incoming poster report."""
+def get_report_action_keyboard(report_id: int, poster_id: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Action buttons attached to the incoming poster report, including 'Sebar Duluan'."""
+    p_id = poster_id if poster_id is not None else 0
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🚀 Sebar Duluan ke Channel",
+                    callback_data=f"rpt_act:{report_id}:publish_now:{p_id}",
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="✅ Terima Pengajuan",
@@ -46,10 +53,17 @@ def get_report_action_keyboard(report_id: int) -> InlineKeyboardMarkup:
 
 
 class ReportService:
-    def __init__(self, bot: Bot, repository: Repository, settings: Settings):
+    def __init__(
+        self,
+        bot: Bot,
+        repository: Repository,
+        settings: Settings,
+        publisher_service: Optional[Any] = None,
+    ):
         self.bot = bot
         self.repository = repository
         self.settings = settings
+        self.publisher_service = publisher_service
 
     async def send_incoming_poster_report(self, poster: PosterRecord) -> Optional[int]:
         """
@@ -102,7 +116,7 @@ class ReportService:
                 chat_id=report_chat_id,
                 text=text,
                 parse_mode="Markdown",
-                reply_markup=get_report_action_keyboard(report_id),
+                reply_markup=get_report_action_keyboard(report_id, poster.id),
             )
             await self.repository.update_report_message_id(report_id, sent_msg.message_id)
         except Exception as e:
@@ -170,6 +184,72 @@ class ReportService:
             return
 
         poster = await self.repository.get_poster(report.poster_id)
+
+        # Handle early publish action ("Sebar Duluan")
+        if action.startswith("publish_now"):
+            if not poster:
+                await callback.answer("Poster tidak ditemukan di database.", show_alert=True)
+                return
+            if poster.status == "PUBLISHED":
+                await callback.answer("Poster ini sudah berstatus PUBLISHED sebelumnya!", show_alert=True)
+                return
+
+            if not self.publisher_service:
+                await callback.answer("Layanan Publisher belum siap.", show_alert=True)
+                return
+
+            await callback.answer("🚀 Sedang menyebarkan poster ke channel @ASCHENEO...", show_alert=False)
+            pub_ok, pub_msg = await self.publisher_service.publish_poster_early(
+                poster=poster,
+                admin_name=admin_user.full_name,
+                admin_id=admin_user.id,
+            )
+
+            if not pub_ok:
+                await callback.answer(f"❌ Gagal Sebar Duluan: {pub_msg}", show_alert=True)
+                return
+
+            new_status = "🚀 Selesai (Sebar Duluan)"
+            await self.repository.update_poster_report_status(
+                report_id=report_id,
+                status=new_status,
+                admin_id=admin_user.id,
+                admin_name=admin_user.full_name,
+                action_note=f"Early publish by {admin_user.full_name}",
+            )
+
+            now_wib = get_current_wib()
+            proc_time_str = now_wib.strftime("%d/%m/%Y %H:%M")
+            username_display = f"@{report.sender_username}" if report.sender_username else "-"
+            institution_display = report.institution_name or "-"
+
+            updated_text = (
+                "𓄲 LAPORAN REQUEST POSTER 𓈒\n\n"
+                f"➤ *Nama Media Partner:* {report.sender_name}\n"
+                f"➤ *Username:* {username_display}\n"
+                f"➤ *Nama Instansi:* {institution_display}\n"
+                f"➤ *ID Pengajuan:* `#{report.id}` (Poster `#{report.poster_id}`)\n"
+                f"➤ *Status:* 🚀 *Diterbitkan Lebih Awal (Sebar Duluan)*\n"
+                f"➤ *Diproses Oleh:* {admin_user.full_name} (`{admin_user.id}`)\n"
+                f"➤ *Waktu Terbit:* {proc_time_str} WIB\n"
+                f"➤ *Channel Tujuan:* {self.settings.channel_username}\n\n"
+                "✅ *Poster telah berhasil disebarkan ke Channel Utama oleh Admin!*"
+            )
+
+            try:
+                await callback.message.edit_text(
+                    text=updated_text,
+                    parse_mode="Markdown",
+                    reply_markup=None,
+                )
+            except Exception as edit_err:
+                logger.warning(f"Could not edit report message after early publish: {edit_err}")
+
+            await callback.answer(
+                f"✅ Sukses! Poster #{poster.id} berhasil disebar duluan ke {self.settings.channel_username}!",
+                show_alert=True,
+            )
+            return
 
         # Status mapping
         status_text_map = {

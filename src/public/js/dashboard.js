@@ -177,7 +177,10 @@ async function fetchPosters() {
           <td>${p.slot_day}, ${p.slot_time} WIB</td>
           <td><span class="badge ${p.status === 'PUBLISHED' ? 'badge-success' : 'badge-gold'}">${p.status}</span></td>
           <td>
-            ${p.source_link ? `<a href="${p.source_link}" target="_blank" class="btn btn-sm btn-dark"><i class="fa-solid fa-arrow-up-right-from-square"></i> Cek</a>` : '-'}
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              ${(p.status === 'KEEP' || p.status === 'SCHEDULED') ? `<button class="btn btn-sm btn-gold" onclick="sebarPosterDuluan(${p.id})"><i class="fa-solid fa-rocket"></i> Sebar Duluan</button>` : ''}
+              ${p.source_link ? `<a href="${p.source_link}" target="_blank" class="btn btn-sm btn-dark"><i class="fa-solid fa-arrow-up-right-from-square"></i> Cek</a>` : '-'}
+            </div>
           </td>
         </tr>
       `).join("");
@@ -208,8 +211,9 @@ async function fetchReports() {
           <td><span class="badge ${r.status === 'Diterima' ? 'badge-success' : 'badge-gold'}">${r.status}</span></td>
           <td>${r.processed_by_name || "Belum diproses"}</td>
           <td>
-            <div style="display:flex;gap:4px;">
-              <button class="btn btn-sm btn-gold" onclick="updateReport(${r.id}, 'Diterima')">✓ Terima</button>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-gold" onclick="sebarPosterDuluan(${r.poster_id})"><i class="fa-solid fa-rocket"></i> Sebar Duluan</button>
+              <button class="btn btn-sm btn-dark" onclick="updateReport(${r.id}, 'Diterima')">✓ Terima</button>
               <button class="btn btn-sm btn-dark" onclick="updateReport(${r.id}, 'Ditolak')">✕ Tolak</button>
             </div>
           </td>
@@ -335,6 +339,53 @@ async function triggerManualCron() {
     const data = await res.json();
     box.textContent = JSON.stringify(data, null, 2);
     fetchSystemStatus();
+  } catch (err) {
+    box.textContent = "Error: " + err.message;
+  }
+}
+
+// Sebar Poster Duluan (Publish Now / Early Broadcast)
+async function sebarPosterDuluan(posterId) {
+  if (!posterId) return alert("ID poster tidak valid.");
+  const confirmMsg = confirm(`Apakah Anda yakin ingin menyebarkan poster #${posterId} sekarang ke channel @ASCHENEO tanpa menunggu jadwal resmi?`);
+  if (!confirmMsg) return;
+
+  try {
+    const res = await fetch("/api/mediapatner-api", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "publish_now", poster_id: posterId }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      alert("🚀 " + (data.message || `Poster #${posterId} berhasil disebar duluan ke channel @ASCHENEO!`));
+      fetchPosters();
+      fetchReports();
+      fetchSystemStatus();
+    } else {
+      alert("❌ " + (data.error || "Gagal menyebarkan poster."));
+    }
+  } catch (err) {
+    alert("Error: " + err.message);
+  }
+}
+
+// Ping Broadcast Channel (@ASCHENEO)
+async function pingBroadcastChannel() {
+  const box = document.getElementById("pingChannelResult");
+  if (!box) return;
+  box.classList.remove("hidden");
+  box.textContent = "📡 Menghubungi channel @ASCHENEO dan mengukur latensi Telegram API...";
+
+  try {
+    const res = await fetch("/api/mediapatner-api?action=ping_channel");
+    const data = await res.json();
+    box.textContent = JSON.stringify(data, null, 2);
+    if (data.success) {
+      alert(`✅ Ping Sukses!\nChannel: ${data.channel}\nJudul: ${data.chat_title}\nLatency: ${data.latency_ms} ms\nStatus: ${data.health_status}`);
+    } else {
+      alert(`⚠️ Ping Gagal: ${data.error || 'Tidak dapat terhubung ke channel'}`);
+    }
   } catch (err) {
     box.textContent = "Error: " + err.message;
   }

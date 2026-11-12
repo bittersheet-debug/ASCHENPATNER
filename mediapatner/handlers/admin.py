@@ -60,6 +60,7 @@ from mediapatner.keyboards.admin_kb import (
     get_operational_settings_keyboard,
     get_request_list_keyboard,
     get_request_detail_keyboard,
+    get_ping_channel_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -953,7 +954,7 @@ async def handle_request_detail(
     if report.action_note:
         text += f"➤ *Catatan:* {report.action_note}\n"
 
-    keyboard = get_request_detail_keyboard(report.id, report.status, page)
+    keyboard = get_request_detail_keyboard(report.id, report.status, page, poster_id=report.poster_id)
     await callback.message.edit_text(text=text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
 
@@ -1140,6 +1141,80 @@ async def handle_toggle_auto_forward(
 
     await callback.answer(f"Auto Forward berhasil diubah menjadi: {'AKTIF' if new_val else 'NONAKTIF'}")
     await handle_settings_menu(callback, repository, settings)
+
+
+# ------------------ PING CHANNEL SIARAN (@ASCHENEO) ------------------
+
+
+@router.message(Command("ping", "pingchannel"))
+async def handle_ping_command(
+    message: Message,
+    publisher_service: PublisherService,
+    settings: Settings,
+):
+    user = message.from_user
+    if not user or not is_admin_check(user.id, settings):
+        return
+
+    status_msg = await message.answer("📡 *Melakukan Ping ke Channel Siaran...*", parse_mode="Markdown")
+    ping_data = await publisher_service.ping_channel()
+
+    text = (
+        "𓄲 STATUS PING CHANNEL SIARAN 𓈒\n\n"
+        f"➤ *Channel Tujuan:* `{ping_data.get('channel')}`\n"
+        f"➤ *Judul Channel:* *{ping_data.get('chat_title', '-')}*\n"
+        f"➤ *Status Bot:* `{ping_data.get('member_status', '-')}`\n"
+        f"➤ *Hak Administrator:* `{'YA ✅' if ping_data.get('is_admin') else 'TIDAK ❌'}`\n"
+        f"➤ *Izin Siaran (Post):* `{'AKTIF ✅' if ping_data.get('can_post') else 'NONAKTIF ❌'}`\n"
+        f"➤ *Izin Edit Pesan:* `{'AKTIF ✅' if ping_data.get('can_edit') else 'NONAKTIF ❌'}`\n"
+        f"➤ *Latency Telegram API:* `{ping_data.get('latency_ms', 0)} ms` ⚡\n"
+        f"➤ *Kondisi Sistem:* *{ping_data.get('health_status', '-')}*\n\n"
+    )
+    if not ping_data.get("success"):
+        text += f"⚠️ *Error:* `{ping_data.get('error')}`\n\n"
+    text += "Semua poster berstatus KEEP akan dikirimkan ke channel ini."
+
+    await status_msg.edit_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=get_ping_channel_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "admin_menu:ping_channel")
+async def handle_ping_channel_callback(
+    callback: CallbackQuery,
+    publisher_service: PublisherService,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await callback.answer("📡 Menghubungi Channel Siaran...", show_alert=False)
+    ping_data = await publisher_service.ping_channel()
+
+    text = (
+        "𓄲 STATUS PING CHANNEL SIARAN 𓈒\n\n"
+        f"➤ *Channel Tujuan:* `{ping_data.get('channel')}`\n"
+        f"➤ *Judul Channel:* *{ping_data.get('chat_title', '-')}*\n"
+        f"➤ *Status Bot:* `{ping_data.get('member_status', '-')}`\n"
+        f"➤ *Hak Administrator:* `{'YA ✅' if ping_data.get('is_admin') else 'TIDAK ❌'}`\n"
+        f"➤ *Izin Siaran (Post):* `{'AKTIF ✅' if ping_data.get('can_post') else 'NONAKTIF ❌'}`\n"
+        f"➤ *Izin Edit Pesan:* `{'AKTIF ✅' if ping_data.get('can_edit') else 'NONAKTIF ❌'}`\n"
+        f"➤ *Latency Telegram API:* `{ping_data.get('latency_ms', 0)} ms` ⚡\n"
+        f"➤ *Kondisi Sistem:* *{ping_data.get('health_status', '-')}*\n\n"
+    )
+    if not ping_data.get("success"):
+        text += f"⚠️ *Error:* `{ping_data.get('error')}`\n\n"
+    text += "Semua poster berstatus KEEP akan dikirimkan ke channel ini."
+
+    await callback.message.edit_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=get_ping_channel_keyboard(),
+    )
 
 
 # ------------------ POSTER DETAIL & ACTIONS ------------------

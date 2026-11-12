@@ -4,11 +4,12 @@ Dispatches posters to the main channel (@ASCHENEO).
 Preserves native channel forward attribution and exact original text without differences.
 """
 
-from typing import Optional
+from typing import Optional, Tuple, Dict, Any
 from aiogram import Bot
 from aiogram.types import URLInputFile
 import logging
 import asyncio
+import time
 from datetime import datetime
 from mediapatner.config import Settings
 from mediapatner.database.repository import Repository
@@ -217,3 +218,81 @@ class PublisherService:
                 )
 
             return False
+
+    async def ping_channel(self) -> Dict[str, Any]:
+        """
+        Pings the main broadcast channel (@ASCHENEO).
+        Checks bot membership, administrator status, posting rights,
+        and round-trip latency to Telegram API.
+        """
+        main_channel = self.settings.channel_username
+        start_time = time.perf_counter()
+
+        try:
+            # 1. Probe chat info
+            chat = await self.bot.get_chat(main_channel)
+            chat_title = chat.title or main_channel
+
+            # 2. Probe bot permissions
+            bot_me = await self.bot.get_me()
+            member = await self.bot.get_chat_member(main_channel, bot_me.id)
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+            is_admin = member.status in ("administrator", "creator")
+            can_post = (
+                getattr(member, "can_post_messages", False)
+                or member.status == "creator"
+                or (is_admin and getattr(member, "can_post_messages", None) is not False)
+            )
+            can_edit = (
+                getattr(member, "can_edit_messages", False)
+                or member.status == "creator"
+            )
+
+            status_str = "SEHAT & SIAP PUBLIKASI ✅" if (is_admin and can_post) else "PERHATIAN: CEK IZIN BOT ⚠️"
+
+            return {
+                "success": True,
+                "channel": main_channel,
+                "chat_title": chat_title,
+                "bot_id": bot_me.id,
+                "bot_username": f"@{bot_me.username}",
+                "member_status": member.status,
+                "is_admin": is_admin,
+                "can_post": can_post,
+                "can_edit": can_edit,
+                "latency_ms": elapsed_ms,
+                "health_status": status_str,
+            }
+        except Exception as e:
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            logger.error(f"Ping to broadcast channel {main_channel} failed: {e}")
+            return {
+                "success": False,
+                "channel": main_channel,
+                "latency_ms": elapsed_ms,
+                "error": str(e),
+                "health_status": "TERPUTUS / GAGAL ❌",
+            }
+
+    async def publish_poster_early(
+        self, poster: PosterRecord, admin_name: str, admin_id: int
+    ) -> Tuple[bool, str]:
+        """
+        Publishes a poster immediately (Sebar Duluan) bypassing the scheduled cron queue.
+        """
+        if poster.status == "PUBLISHED":
+            return False, f"Poster #{poster.id} sudah pernah diterbitkan sebelumnya!"
+
+        await self.repository.mark_publishing(poster.id)
+        success = await self.publish_poster(poster)
+        if success:
+            await self.repository.log_activity(
+                action="EARLY_PUBLISH",
+                poster_id=poster.id,
+                user_id=admin_id,
+                details=f"Sebar duluan dipublikasikan oleh Admin {admin_name} ({admin_id})",
+            )
+            return True, f"Poster #{poster.id} berhasil disebar duluan ke {self.settings.channel_username}!"
+        else:
+            return False, f"Gagal menyebarkan poster #{poster.id}. Silakan periksa izin bot di channel {self.settings.channel_username}."

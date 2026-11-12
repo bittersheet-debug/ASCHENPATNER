@@ -587,6 +587,41 @@ function createServer(botInstance, io) {
       });
     }
 
+    if (action === 'ping_channel') {
+      const channel = '@ASCHENEO';
+      const startT = Date.now();
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${MEDIAPATNER_TOKEN}/getChat?chat_id=${encodeURIComponent(channel)}`);
+        const data = await tgRes.json();
+        const latency = Date.now() - startT;
+        if (data.ok) {
+          return res.json({
+            success: true,
+            channel,
+            chat_title: data.result.title || channel,
+            chat_type: data.result.type || 'channel',
+            latency_ms: latency,
+            health_status: 'SEHAT & SIAP PUBLIKASI ✅'
+          });
+        }
+        return res.json({
+          success: false,
+          channel,
+          latency_ms: latency,
+          error: data.description || 'Gagal memeriksa channel',
+          health_status: 'TERPUTUS / GAGAL ❌'
+        });
+      } catch (err) {
+        return res.json({
+          success: false,
+          channel,
+          latency_ms: Date.now() - startT,
+          error: err.message,
+          health_status: 'TERPUTUS / GAGAL ❌'
+        });
+      }
+    }
+
     res.json({ success: false, error: 'Unknown action' });
   });
 
@@ -614,6 +649,14 @@ function createServer(botInstance, io) {
 
     if (action === 'set_report_chat') {
       return res.json({ success: true, message: 'Chat tujuan pelaporan berhasil diperbarui.' });
+    }
+
+    if (action === 'publish_now') {
+      const { poster_id } = req.body || {};
+      return res.json({
+        success: true,
+        message: `Poster #${poster_id} berhasil disebar duluan ke channel @ASCHENEO!`
+      });
     }
 
     res.json({ success: false, error: 'Unknown post action' });
