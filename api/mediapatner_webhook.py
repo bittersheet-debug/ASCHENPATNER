@@ -17,34 +17,36 @@ from mediapatner.config import get_settings
 from mediapatner.bot import MediaPatnerApplication
 from mediapatner.database.blob_sync import save_to_blob
 
-# Global cached application instance for warm serverless invocations
-_app = None
+import logging
 
-
-def get_or_create_app():
-    global _app
-    if _app is None:
-        settings = get_settings()
-        _app = MediaPatnerApplication(settings)
-    return _app
+logger = logging.getLogger(__name__)
 
 
 async def process_telegram_update(update_data: dict) -> bool:
-    app = get_or_create_app()
-    # Ensure database is initialized
-    await app.db.init()
+    settings = get_settings()
+    # Create fresh application instance bound to the current event loop
+    app = MediaPatnerApplication(settings)
+    try:
+        # Ensure database is initialized
+        await app.db.init()
 
-    # Feed update to aiogram dispatcher
-    await app.dp.feed_raw_update(app.bot, update_data)
+        # Feed update to aiogram dispatcher
+        await app.dp.feed_raw_update(app.bot, update_data)
 
-    # Persist SQLite to Vercel Blob
-    if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+        # Persist SQLite to Vercel Blob
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(app.db.db_path)
+            except Exception:
+                pass
+
+        return True
+    finally:
+        # Crucial: Always close aiohttp session and database connection for this loop
         try:
-            save_to_blob(app.db.db_path)
+            await app.bot.session.close()
         except Exception:
             pass
-
-    return True
 
 
 class handler(BaseHTTPRequestHandler):
@@ -52,17 +54,20 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
-            update_data = json.loads(body.decode("utf-8"))
+            update_data = json.loads(body.decode("utf-8")) if body else {}
 
-            # Run async processing
-            asyncio.run(process_telegram_update(update_data))
+            if update_data:
+                # Run async processing on a clean event loop
+                asyncio.run(process_telegram_update(update_data))
 
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
         except Exception as e:
-            self.send_response(500)
+            logger.exception(f"Error handling Telegram webhook update: {e}")
+            # CRITICAL: Always return 200 OK to Telegram API so failed updates are not stuck in retry queue
+            self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode("utf-8"))
