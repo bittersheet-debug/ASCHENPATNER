@@ -479,8 +479,9 @@ async def handle_post_request(body_data: dict) -> dict:
         await repo.set_channel_enabled(channel_key, enabled)
         if not enabled:
             target_cid = (
-                channels.channel_1_id if channel_key == "ch1"
-                else (channels.channel_2_id if channel_key == "ch2" else channels.poster_id)
+                channels.main_id if channel_key in ("main", "utama")
+                else (channels.channel_1_id if channel_key == "ch1"
+                else (channels.channel_2_id if channel_key == "ch2" else channels.poster_id))
             )
             if target_cid:
                 await repo.cancel_pending_jobs_for_channel(target_cid)

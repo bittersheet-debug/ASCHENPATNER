@@ -2129,9 +2129,15 @@ async def handle_channel_toggle(
         await callback.answer("Data tombol tidak valid.", show_alert=True)
         return
 
-    channel_key = parts[1]  # 'ch1', 'ch2', 'poster'
+    channel_key = parts[1]  # 'main', 'ch1', 'ch2', 'poster'
     target_action = parts[2]  # 'on', 'off'
     channels = await repository.get_channel_settings()
+
+    label = (
+        "Channel Utama"
+        if channel_key in ("main", "utama")
+        else ("Channel 1" if channel_key == "ch1" else ("Channel 2" if channel_key == "ch2" else "Channel Poster"))
+    )
 
     if target_action == "on":
         # Check if ID is configured before activating
@@ -2149,7 +2155,6 @@ async def handle_channel_toggle(
             return
 
         await repository.set_channel_enabled(channel_key, True)
-        label = "Channel 1" if channel_key == "ch1" else ("Channel 2" if channel_key == "ch2" else "Channel Poster")
         await callback.answer(f"🟢 {label} berhasil DIAKTIFKAN!", show_alert=False)
         await repository.log_activity(
             action="CHANNEL_TOGGLE",
@@ -2159,12 +2164,13 @@ async def handle_channel_toggle(
         )
     else:
         # Turning OFF
-        label = "Channel 1" if channel_key == "ch1" else ("Channel 2" if channel_key == "ch2" else "Channel Poster")
         await repository.set_channel_enabled(channel_key, False)
 
         # Rule C.7: If dispatch is ongoing, stop/cancel subsequent jobs for that channel
         target_cid = ""
-        if channel_key == "ch1":
+        if channel_key in ("main", "utama"):
+            target_cid = channels.main_id
+        elif channel_key == "ch1":
             target_cid = channels.channel_1_id
         elif channel_key == "ch2":
             target_cid = channels.channel_2_id

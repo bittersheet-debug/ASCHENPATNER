@@ -645,6 +645,13 @@ def get_channel_control_keyboard(channels: ChannelSettings) -> InlineKeyboardMar
     - ⚙️ PENGATURAN CHANNEL
     - 📊 RIWAYAT PENYEBARAN
     """
+    # Button Main: Channel Utama
+    btn_main = (
+        InlineKeyboardButton(text="🔴 NONAKTIFKAN CHANNEL UTAMA", callback_data="chan_toggle:main:off")
+        if channels.main_enabled
+        else InlineKeyboardButton(text="🟢 AKTIFKAN CHANNEL UTAMA", callback_data="chan_toggle:main:on")
+    )
+
     # Button 1: Channel 1
     btn_ch1 = (
         InlineKeyboardButton(text="🔴 NONAKTIFKAN CHANNEL 1", callback_data="chan_toggle:ch1:off")
@@ -676,9 +683,10 @@ def get_channel_control_keyboard(channels: ChannelSettings) -> InlineKeyboardMar
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [btn_main],
+            [btn_poster],
             [btn_ch1],
             [btn_ch2],
-            [btn_poster],
             [
                 InlineKeyboardButton(
                     text=f"🎯 Target Sebar Otomatis: [{tgt_text}]",

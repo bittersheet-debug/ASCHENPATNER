@@ -737,7 +737,18 @@ class Repository:
         )
 
     async def set_channel_enabled(self, channel_key: str, enabled: bool) -> None:
-        key = f"channel_{channel_key}_enabled"
+        ck = str(channel_key).strip().lower()
+        if ck in ("ch1", "1"):
+            norm_key = "1"
+        elif ck in ("ch2", "2"):
+            norm_key = "2"
+        elif ck in ("main", "channel_main", "utama"):
+            norm_key = "main"
+        elif ck in ("poster", "channel_poster", "sebar"):
+            norm_key = "poster"
+        else:
+            norm_key = ck
+        key = f"channel_{norm_key}_enabled"
         await self.set_setting(key, "true" if enabled else "false")
 
     async def set_channel_id(self, channel_key: str, channel_id: str) -> None:
