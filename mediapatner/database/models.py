@@ -111,3 +111,84 @@ class OperationalHoursConfig:
     close_hour: int = 22  # 22.00 WIB
     sunday_closed: bool = True  # Minggu TUTUP
 
+
+@dataclass
+class BroadcastBotRecord:
+    id: Optional[int]
+    token: str
+    bot_id: int
+    bot_username: str
+    bot_first_name: Optional[str]
+    role: str = "cadangan"  # 'channel_1', 'channel_2', 'poster', 'cadangan'
+    is_active: bool = True
+    is_verified: bool = False
+    verified_at: Optional[str] = None
+    permissions: Optional[str] = None
+    last_status: str = "OK"
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def get_masked_token(self) -> str:
+        parts = self.token.split(":")
+        if len(parts) == 2 and len(parts[0]) >= 4 and len(parts[1]) >= 4:
+            return f"{parts[0][:4]}***:{parts[1][:4]}***"
+        return "***PROTECTED***"
+
+    def get_parsed_permissions(self) -> dict:
+        if not self.permissions:
+            return {}
+        try:
+            return json.loads(self.permissions)
+        except Exception:
+            return {}
+
+
+@dataclass
+class BroadcastQueueRecord:
+    id: Optional[int]
+    job_id: str
+    idempotency_key: str
+    job_type: str  # 'poster', 'message'
+    payload_id: Optional[int]
+    target_channel_id: str
+    target_channel_name: Optional[str]
+    assigned_bot_id: Optional[int]
+    assigned_role: Optional[str]
+    status: str = "PENDING"  # 'PENDING', 'PROCESSING', 'SUCCESS', 'FAILED', 'CANCELLED'
+    retry_count: int = 0
+    max_retries: int = 3
+    locked_at: Optional[str] = None
+    locked_by: Optional[str] = None
+    last_error: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@dataclass
+class BroadcastHistoryRecord:
+    id: Optional[int]
+    job_id: str
+    bot_name: str
+    target_channel_id: str
+    target_channel_name: Optional[str]
+    content_type: str
+    content_preview: Optional[str]
+    sent_at: str
+    status: str  # 'SUCCESS', 'FAILED'
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    published_message_id: Optional[int] = None
+    created_at: Optional[str] = None
+
+
+@dataclass
+class ChannelSettings:
+    main_id: str = "-1002123283346"
+    main_enabled: bool = True
+    poster_id: str = "-1003512801822"
+    poster_enabled: bool = True
+    channel_1_id: str = ""
+    channel_1_enabled: bool = False
+    channel_2_id: str = ""
+    channel_2_enabled: bool = False
+

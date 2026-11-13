@@ -33,9 +33,12 @@ from mediapatner.database.models import (
     AdminDeviceRecord,
     PosterReportRecord,
     OperationalHoursConfig,
+    BroadcastBotRecord,
+    ChannelSettings,
 )
 from mediapatner.services.publisher_service import PublisherService
 from mediapatner.services.report_service import ReportService
+from mediapatner.services.multi_bot_service import MultiBotService
 from mediapatner.services.scheduler_service import (
     calculate_next_wib_slot,
     format_indonesian_date,
@@ -61,6 +64,11 @@ from mediapatner.keyboards.admin_kb import (
     get_request_list_keyboard,
     get_request_detail_keyboard,
     get_ping_channel_keyboard,
+    get_channel_control_keyboard,
+    get_channel_settings_keyboard,
+    get_broadcast_history_keyboard,
+    get_bot_management_keyboard,
+    get_bot_detail_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -85,6 +93,19 @@ class AdminDeviceLoginStates(StatesGroup):
 
 class AdminReportChatStates(StatesGroup):
     waiting_for_custom_chat_id = State()
+
+
+class AdminChannelConfigStates(StatesGroup):
+    waiting_for_channel_1_id = State()
+    waiting_for_channel_2_id = State()
+
+
+class AdminBotAddStates(StatesGroup):
+    waiting_for_bot_token = State()
+
+
+class AdminBroadcastSendStates(StatesGroup):
+    waiting_for_broadcast_content = State()
 
 
 def is_admin_check(user_id: int, settings: Settings) -> bool:
@@ -1487,3 +1508,721 @@ async def handle_retry_failed_poster(
         )
 
     await handle_admin_overview_callback(callback, repository, settings, state)
+
+
+# ==============================================================================
+# SECTION 8: SISTEM KONFIGURASI CHANNEL PENYEBARAN & MULTI-BOT (FINAL FIX)
+# ==============================================================================
+
+async def render_channel_control_text(repository: Repository) -> str:
+    channels = await repository.get_channel_settings()
+    bots = await repository.get_all_broadcast_bots()
+    hist_count = await repository.get_broadcast_history_count()
+
+    def status_badge(enabled: bool, cid: str) -> str:
+        if not cid or not cid.strip():
+            return "Belum Dikonfigurasi (OFF) ⚪"
+        return "AKTIF [ON] 🟢" if enabled else "NONAKTIF [OFF] 🔴"
+
+    b_ch1 = next((b for b in bots if b.role == "channel_1" and b.is_active), None)
+    b_ch2 = next((b for b in bots if b.role == "channel_2" and b.is_active), None)
+    b_poster = next((b for b in bots if b.role == "poster" and b.is_active), None)
+    backups = [b for b in bots if b.role == "cadangan" and b.is_active]
+
+    ch1_name = f"@{b_ch1.bot_username}" if b_ch1 else "*(Belum Ditugaskan)*"
+    ch2_name = f"@{b_ch2.bot_username}" if b_ch2 else "*(Belum Ditugaskan)*"
+    poster_bot_name = f"@{b_poster.bot_username}" if b_poster else "*(Belum Ditugaskan)*"
+    backup_count = f"{len(backups)} Bot Siap" if backups else "Tidak Ada"
+
+    ch1_display_id = f"`{channels.channel_1_id}`" if channels.channel_1_id else "_(Belum Diatur)_"
+    ch2_display_id = f"`{channels.channel_2_id}`" if channels.channel_2_id else "_(Belum Diatur)_"
+
+    return (
+        "𓄲 *KONTROL SALURAN & MULTI-BOT DISPATCHER* 𓈒\n"
+        "ASCHEN EVENT ORGANIZER\n\n"
+        "📡 *STATUS SALURAN PENYEBARAN*\n"
+        f"➤ *Channel Utama:* `-1002123283346`\n"
+        f"   └ Status: {'AKTIF [ON] 🟢' if channels.main_enabled else 'NONAKTIF [OFF] 🔴'}\n"
+        f"➤ *Channel Poster:* `-1003512801822`\n"
+        f"   └ Status: {'AKTIF [ON] 🟢' if channels.poster_enabled else 'NONAKTIF [OFF] 🔴'}\n"
+        f"➤ *Channel 1:* {ch1_display_id}\n"
+        f"   └ Status: {status_badge(channels.channel_1_enabled, channels.channel_1_id)}\n"
+        f"➤ *Channel 2:* {ch2_display_id}\n"
+        f"   └ Status: {status_badge(channels.channel_2_enabled, channels.channel_2_id)}\n\n"
+        "🤖 *PEMBAGIAN TUGAS BOT*\n"
+        f"➤ *Bot Channel 1:* {ch1_name}\n"
+        f"➤ *Bot Channel 2:* {ch2_name}\n"
+        f"➤ *Bot Poster:* {poster_bot_name}\n"
+        f"➤ *Bot Cadangan (Failover):* {backup_count}\n\n"
+        "📊 *MONITORING ANTREAN*\n"
+        f"➤ Total Riwayat Penyebaran: *{hist_count}* pekerjaan tercatat.\n"
+        "➤ Mode Failover: *Aktif Otomatis* jika bot utama gagal.\n\n"
+        "ᵎ!ᵎ _Pilih tombol kontrol di bawah untuk mengubah status atau konfigurasi:_"
+    )
+
+
+@router.callback_query(F.data == "admin_menu:channel_control")
+async def handle_channel_control_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await state.clear()
+    channels = await repository.get_channel_settings()
+    text = await render_channel_control_text(repository)
+    kb = get_channel_control_keyboard(channels)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("chan_toggle:"))
+async def handle_channel_toggle(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    if len(parts) < 3:
+        await callback.answer("Data tombol tidak valid.", show_alert=True)
+        return
+
+    channel_key = parts[1]  # 'ch1', 'ch2', 'poster'
+    target_action = parts[2]  # 'on', 'off'
+    channels = await repository.get_channel_settings()
+
+    if target_action == "on":
+        # Check if ID is configured before activating
+        if channel_key == "ch1" and not channels.channel_1_id:
+            await callback.answer(
+                "⚠️ ID Channel 1 belum dikonfigurasi!\nSilakan atur ID Channel 1 terlebih dahulu di menu ⚙️ PENGATURAN CHANNEL.",
+                show_alert=True,
+            )
+            return
+        elif channel_key == "ch2" and not channels.channel_2_id:
+            await callback.answer(
+                "⚠️ ID Channel 2 belum dikonfigurasi!\nSilakan atur ID Channel 2 terlebih dahulu di menu ⚙️ PENGATURAN CHANNEL.",
+                show_alert=True,
+            )
+            return
+
+        await repository.set_channel_enabled(channel_key, True)
+        label = "Channel 1" if channel_key == "ch1" else ("Channel 2" if channel_key == "ch2" else "Channel Poster")
+        await callback.answer(f"🟢 {label} berhasil DIAKTIFKAN!", show_alert=False)
+        await repository.log_activity(
+            action="CHANNEL_TOGGLE",
+            poster_id=None,
+            user_id=user.id,
+            details=f"{label} toggled ON by Admin",
+        )
+    else:
+        # Turning OFF
+        label = "Channel 1" if channel_key == "ch1" else ("Channel 2" if channel_key == "ch2" else "Channel Poster")
+        await repository.set_channel_enabled(channel_key, False)
+
+        # Rule C.7: If dispatch is ongoing, stop/cancel subsequent jobs for that channel
+        target_cid = ""
+        if channel_key == "ch1":
+            target_cid = channels.channel_1_id
+        elif channel_key == "ch2":
+            target_cid = channels.channel_2_id
+        elif channel_key == "poster":
+            target_cid = channels.poster_id
+
+        if target_cid:
+            cancelled_count = await repository.cancel_pending_jobs_for_channel(target_cid)
+            if cancelled_count > 0:
+                logger.info(f"Cancelled {cancelled_count} pending jobs for {label} ({target_cid})")
+
+        await callback.answer(f"🔴 {label} berhasil DINONAKTIFKAN!", show_alert=False)
+        await repository.log_activity(
+            action="CHANNEL_TOGGLE",
+            poster_id=None,
+            user_id=user.id,
+            details=f"{label} toggled OFF by Admin",
+        )
+
+    # Refresh dashboard
+    updated_channels = await repository.get_channel_settings()
+    text = await render_channel_control_text(repository)
+    kb = get_channel_control_keyboard(updated_channels)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "admin_act:sync_bots")
+async def handle_sync_bots_callback(
+    callback: CallbackQuery,
+    repository: Repository,
+    multi_bot_service: MultiBotService,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await callback.answer("Sedang mensinkronisasi dan memverifikasi izin semua bot...")
+    audit_results = await multi_bot_service.sync_all_bots()
+
+    summary_lines = ["🔄 *HASIL SINKRONISASI & AUDIT BOT*\n"]
+    for r in audit_results:
+        uname = r.get("username", "Unknown")
+        role = r.get("role", "cadangan").upper()
+        status = r.get("status", "UNKNOWN")
+        ico = "🟢" if "OK" in status else "🔴"
+        summary_lines.append(f"{ico} *@{uname}* [{role}]: `{status}`")
+
+    summary_lines.append("\n_Semua bot telah diaudit pada seluruh channel yang aktif._")
+    summary_text = "\n".join(summary_lines)
+
+    await callback.message.answer(summary_text, parse_mode="Markdown")
+    # Refresh dashboard
+    channels = await repository.get_channel_settings()
+    text = await render_channel_control_text(repository)
+    kb = get_channel_control_keyboard(channels)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "admin_menu:chan_settings")
+async def handle_channel_settings_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await state.clear()
+    channels = await repository.get_channel_settings()
+
+    ch1_val = f"`{channels.channel_1_id}`" if channels.channel_1_id else "_(Belum Diatur)_"
+    ch2_val = f"`{channels.channel_2_id}`" if channels.channel_2_id else "_(Belum Diatur)_"
+
+    text = (
+        "⚙️ *PENGATURAN ID SALURAN PENYEBARAN*\n\n"
+        "Atur ID Telegram untuk Channel 1 dan Channel 2 sesuai channel penyiaran Anda.\n\n"
+        f"➤ *Channel 1:* {ch1_val}\n"
+        f"➤ *Channel 2:* {ch2_val}\n"
+        "➤ *Channel Utama:* `-1002123283346` _(Tetap)_\n"
+        "➤ *Channel Poster:* `-1003512801822` _(Tetap)_\n\n"
+        "⚠️ _Pastikan bot telah ditambahkan sebagai Administrator di channel sebelum mengaktifkan penyiaran._"
+    )
+
+    kb = get_channel_settings_keyboard(channels)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("chan_set_id:"))
+async def handle_start_set_channel_id(
+    callback: CallbackQuery,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    chan_key = callback.data.split(":")[1]  # 'ch1' or 'ch2'
+    target_name = "Channel 1" if chan_key == "ch1" else "Channel 2"
+
+    if chan_key == "ch1":
+        await state.set_state(AdminChannelConfigStates.waiting_for_channel_1_id)
+    else:
+        await state.set_state(AdminChannelConfigStates.waiting_for_channel_2_id)
+
+    prompt = (
+        f"✏️ *MASUKKAN ID UNTUK {target_name.upper()}*\n\n"
+        "Kirimkan ID Telegram channel tujuan (biasanya diawali `-100`, contoh: `-1002345678901`).\n\n"
+        "Ketik /cancel untuk membatalkan."
+    )
+    await callback.message.answer(prompt, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.message(AdminChannelConfigStates.waiting_for_channel_1_id)
+async def handle_input_channel_1_id(
+    message: Message,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = message.from_user
+    if not user or not is_admin_check(user.id, settings):
+        return
+
+    raw_id = (message.text or "").strip()
+    if raw_id.lower() == "/cancel":
+        await state.clear()
+        await message.answer("Batal mengatur ID Channel 1.")
+        return
+
+    if not re.match(r"^-?100\d+$|^-?\d+$", raw_id):
+        await message.answer(
+            "❌ *Format ID Tidak Valid!*\n"
+            "ID Telegram channel harus berupa angka (contoh: `-1002345678901`). Silakan coba lagi atau /cancel:",
+            parse_mode="Markdown",
+        )
+        return
+
+    await repository.set_channel_id("1", raw_id)
+    await repository.log_activity(
+        action="CONFIG_CHANGE",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Channel 1 ID updated to {raw_id}",
+    )
+    await state.clear()
+
+    channels = await repository.get_channel_settings()
+    await message.answer(
+        f"✅ *Berhasil!* ID Channel 1 telah diperbarui menjadi `{raw_id}`.",
+        parse_mode="Markdown",
+        reply_markup=get_channel_settings_keyboard(channels),
+    )
+
+
+@router.message(AdminChannelConfigStates.waiting_for_channel_2_id)
+async def handle_input_channel_2_id(
+    message: Message,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = message.from_user
+    if not user or not is_admin_check(user.id, settings):
+        return
+
+    raw_id = (message.text or "").strip()
+    if raw_id.lower() == "/cancel":
+        await state.clear()
+        await message.answer("Batal mengatur ID Channel 2.")
+        return
+
+    if not re.match(r"^-?100\d+$|^-?\d+$", raw_id):
+        await message.answer(
+            "❌ *Format ID Tidak Valid!*\n"
+            "ID Telegram channel harus berupa angka (contoh: `-1002345678901`). Silakan coba lagi atau /cancel:",
+            parse_mode="Markdown",
+        )
+        return
+
+    await repository.set_channel_id("2", raw_id)
+    await repository.log_activity(
+        action="CONFIG_CHANGE",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Channel 2 ID updated to {raw_id}",
+    )
+    await state.clear()
+
+    channels = await repository.get_channel_settings()
+    await message.answer(
+        f"✅ *Berhasil!* ID Channel 2 telah diperbarui menjadi `{raw_id}`.",
+        parse_mode="Markdown",
+        reply_markup=get_channel_settings_keyboard(channels),
+    )
+
+
+@router.callback_query(F.data.startswith("admin_menu:broadcast_history:"))
+async def handle_broadcast_history_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    try:
+        page = int(callback.data.split(":")[2])
+    except Exception:
+        page = 0
+
+    limit = 5
+    offset = page * limit
+    total_count = await repository.get_broadcast_history_count()
+    total_pages = max(1, math.ceil(total_count / limit))
+    history_items = await repository.get_broadcast_history(limit=limit, offset=offset)
+
+    lines = [
+        "📊 *RIWAYAT PENYEBARAN PESAN & POSTER*",
+        f"Total Aktivitas: *{total_count}* pekerjaan\n",
+    ]
+
+    if not history_items:
+        lines.append("_Belum ada riwayat pengiriman tercatat._")
+    else:
+        for idx, h in enumerate(history_items, 1):
+            ico = "✅" if h.status == "SUCCESS" else "❌"
+            err_line = f"   └ Error: `{h.error_message}`\n" if h.error_message else ""
+            lines.append(
+                f"{ico} *{h.job_id}*\n"
+                f"   ├ Target: *{h.target_channel_name or h.target_channel_id}*\n"
+                f"   ├ Pengirim: `{h.bot_name}`\n"
+                f"   ├ Jenis: *{h.content_type}*\n"
+                f"   ├ Waktu: `{h.sent_at}` WIB\n"
+                f"   ├ Status: *{h.status}*\n"
+                f"{err_line}"
+            )
+
+    text = "\n".join(lines)
+    kb = get_broadcast_history_keyboard(page, total_pages)
+
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_menu:bot_mgmt")
+async def handle_bot_management_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await state.clear()
+    bots = await repository.get_all_broadcast_bots()
+
+    text = (
+        "🤖 *MANAJEMEN MULTI-BOT DISPATCHER*\n\n"
+        "Daftar bot yang terdaftar untuk penyiaran. Admin dapat menambah bot baru, "
+        "memverifikasi izin administrator, dan mengatur pembagian tugas.\n\n"
+        f"Total Bot Terdaftar: *{len(bots)}*\n"
+        "ᵎ!ᵎ _Pilih bot untuk mengatur peran (Channel 1, Channel 2, Poster, Cadangan):_"
+    )
+
+    kb = get_bot_management_keyboard(bots)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "bot_act:add")
+async def handle_bot_add_start(
+    callback: CallbackQuery,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    await state.set_state(AdminBotAddStates.waiting_for_bot_token)
+    prompt = (
+        "➕ *TAMBAH BOT PENYEBARAN BARU*\n\n"
+        "Kirimkan *Bot API Token* dari @BotFather yang ingin Anda daftarkan.\n\n"
+        "🔒 _Token akan disimpan dengan aman dan disamarkan (masked) di tampilan._\n"
+        "Ketik /cancel untuk membatalkan."
+    )
+    await callback.message.answer(prompt, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.message(AdminBotAddStates.waiting_for_bot_token)
+async def handle_bot_add_token_input(
+    message: Message,
+    repository: Repository,
+    multi_bot_service: MultiBotService,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = message.from_user
+    if not user or not is_admin_check(user.id, settings):
+        return
+
+    raw_token = (message.text or "").strip()
+    if raw_token.lower() == "/cancel":
+        await state.clear()
+        await message.answer("Batal menambahkan bot.")
+        return
+
+    if ":" not in raw_token or len(raw_token) < 20:
+        await message.answer(
+            "❌ *Format Token Tidak Valid!*\n"
+            "Token bot biasanya berbentuk `123456789:AA...`. Silakan coba lagi atau /cancel:",
+            parse_mode="Markdown",
+        )
+        return
+
+    wait_msg = await message.answer("🔄 Memverifikasi token bot dengan Telegram API...")
+    is_valid, me_info, err = await multi_bot_service.verify_bot_token(raw_token)
+    if not is_valid or not me_info:
+        await wait_msg.edit_text(
+            f"❌ *Verifikasi Bot Gagal!*\nTelegram mengembalikan pesan: `{err}`\nPastikan token benar dan aktif.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Register in DB
+    bot_record = BroadcastBotRecord(
+        id=None,
+        token=raw_token,
+        bot_id=me_info["id"],
+        bot_username=me_info["username"],
+        bot_first_name=me_info.get("first_name"),
+        role="cadangan",
+        is_active=True,
+        is_verified=False,
+        last_status="BARU_DIDAFTARKAN",
+    )
+    await repository.upsert_broadcast_bot(bot_record)
+    await repository.log_activity(
+        action="BOT_ADDED",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Bot @{me_info['username']} added by Admin",
+    )
+    await state.clear()
+
+    # Trigger auto sync permissions
+    await multi_bot_service.sync_all_bots()
+
+    bots = await repository.get_all_broadcast_bots()
+    await wait_msg.edit_text(
+        f"✅ *Bot Berhasil Didaftarkan!*\n\n"
+        f"➤ *Username:* @{me_info['username']}\n"
+        f"➤ *ID Bot:* `{me_info['id']}`\n"
+        f"➤ *Peran Default:* `Bot Cadangan`\n\n"
+        "Izin administrator telah diaudit otomatis.",
+        parse_mode="Markdown",
+        reply_markup=get_bot_management_keyboard(bots),
+    )
+
+
+@router.callback_query(F.data.startswith("bot_detail:"))
+async def handle_bot_detail_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    bot_id = int(callback.data.split(":")[1])
+    bot = await repository.get_broadcast_bot_by_id(bot_id)
+    if not bot:
+        await callback.answer("Bot tidak ditemukan.", show_alert=True)
+        return
+
+    perms = bot.get_parsed_permissions()
+    perm_lines = []
+    for ch_name, p in perms.items():
+        ok = p.get("ok", False)
+        lbl = p.get("label", "UNKNOWN")
+        ico = "✅" if ok else "⚠️"
+        perm_lines.append(f"   ├ {ch_name}: {ico} `{lbl}`")
+
+    perms_str = "\n".join(perm_lines) if perm_lines else "   └ _Belum diaudit (klik Sinkronisasi)_"
+
+    text = (
+        f"🤖 *DETAIL BOT: @{bot.bot_username}*\n\n"
+        f"➤ *ID Bot:* `{bot.bot_id}`\n"
+        f"➤ *Token:* `{bot.get_masked_token()}`\n"
+        f"➤ *Peran Saat Ini:* *{bot.role.upper()}*\n"
+        f"➤ *Status:* {'🟢 Terverifikasi' if bot.is_verified else '🟡 Perlu Hak Admin'}\n"
+        f"➤ *Izin Saluran:*\n{perms_str}\n\n"
+        "ᵎ!ᵎ _Pilih peran penugasan untuk bot ini:_"
+    )
+
+    kb = get_bot_detail_keyboard(bot.bot_id, bot.role)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("bot_set_role:"))
+async def handle_bot_set_role(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    bot_id = int(parts[1])
+    new_role = parts[2]
+
+    await repository.set_broadcast_bot_role(bot_id, new_role)
+    await repository.log_activity(
+        action="BOT_ROLE_CHANGE",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Bot {bot_id} role updated to {new_role}",
+    )
+
+    await callback.answer(f"Peran bot diperbarui menjadi: {new_role.upper()}", show_alert=False)
+    bot = await repository.get_broadcast_bot_by_id(bot_id)
+    if bot:
+        kb = get_bot_detail_keyboard(bot.bot_id, bot.role)
+        try:
+            await callback.message.edit_reply_markup(reply_markup=kb)
+        except Exception:
+            pass
+
+
+@router.callback_query(F.data.startswith("bot_act:delete:"))
+async def handle_bot_delete(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    bot_id = int(callback.data.split(":")[2])
+    await repository.delete_broadcast_bot(bot_id)
+    await repository.log_activity(
+        action="BOT_DELETED",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Bot {bot_id} deleted by Admin",
+    )
+
+    await callback.answer("Bot berhasil dihapus.", show_alert=True)
+    bots = await repository.get_all_broadcast_bots()
+    kb = get_bot_management_keyboard(bots)
+    try:
+        await callback.message.edit_text(
+            "🤖 *MANAJEMEN MULTI-BOT*\n\nBot telah dihapus. Daftar bot diperbarui:",
+            reply_markup=kb,
+            parse_mode="Markdown",
+        )
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "admin_menu:broadcast_send")
+async def handle_broadcast_send_start(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    channels = await repository.get_channel_settings()
+    ch1_st = "🟢 ON" if (channels.channel_1_enabled and channels.channel_1_id) else "🔴 OFF / Belum Diatur"
+    ch2_st = "🟢 ON" if (channels.channel_2_enabled and channels.channel_2_id) else "🔴 OFF / Belum Diatur"
+
+    await state.set_state(AdminBroadcastSendStates.waiting_for_broadcast_content)
+    text = (
+        "📢 *KIRIM SIARAN PESAN KE CHANNEL*\n\n"
+        "Pesan akan disebarkan berdasarkan aturan status channel saat ini:\n"
+        f"➤ *Channel 1:* {ch1_st}\n"
+        f"➤ *Channel 2:* {ch2_st}\n\n"
+        "📌 *Ketentuan Logika Penyebaran (C.1 - C.4):*\n"
+        "1. Jika Channel 1 ON & Channel 2 OFF -> hanya ke Channel 1.\n"
+        "2. Jika Channel 1 OFF & Channel 2 ON -> hanya ke Channel 2.\n"
+        "3. Jika Channel 1 ON & Channel 2 ON -> ke kedua channel.\n"
+        "4. Jika kedua channel OFF -> pengiriman otomatis dibatalkan.\n\n"
+        "Kirimkan teks pesan (atau foto dengan caption) yang ingin Anda sebarkan.\n"
+        "Ketik /cancel untuk membatalkan."
+    )
+    await callback.message.answer(text, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.message(AdminBroadcastSendStates.waiting_for_broadcast_content)
+async def handle_broadcast_content_input(
+    message: Message,
+    repository: Repository,
+    multi_bot_service: MultiBotService,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = message.from_user
+    if not user or not is_admin_check(user.id, settings):
+        return
+
+    if message.text and message.text.strip().lower() == "/cancel":
+        await state.clear()
+        await message.answer("Batal mengirim siaran pesan.")
+        return
+
+    text_content = message.caption or message.text or ""
+    photo_id = None
+    media_type = None
+
+    if message.photo:
+        photo_id = message.photo[-1].file_id
+        media_type = "photo"
+
+    if not text_content and not photo_id:
+        await message.answer("❌ Harap kirimkan pesan teks atau foto. Coba lagi atau /cancel:")
+        return
+
+    wait_msg = await message.answer("⏳ Memproses antrean dan menyebarkan ke channel aktif...")
+    res = await multi_bot_service.broadcast_message_to_channels(
+        text=text_content,
+        media_file_id=photo_id,
+        media_type=media_type,
+        author_name=user.full_name or "Admin",
+    )
+    await state.clear()
+
+    # Format result report
+    if res.get("ok"):
+        res_lines = ["✅ *SIARAN BERHASIL DISEBARKAN*\n"]
+        for r in res.get("results", []):
+            ch_name = r.get("channel")
+            if r.get("ok"):
+                res_lines.append(f"🟢 *{ch_name}*: Berhasil terkirim via `{r.get('bot')}` (Msg ID: `{r.get('message_id')}`)")
+            else:
+                res_lines.append(f"🔴 *{ch_name}*: Gagal (`{r.get('error')}`)")
+        await wait_msg.edit_text("\n".join(res_lines), parse_mode="Markdown")
+    else:
+        await wait_msg.edit_text(
+            f"❌ *Penyebaran Gagal!*\n{res.get('message', 'Tidak ada channel aktif.')}",
+            parse_mode="Markdown",
+        )

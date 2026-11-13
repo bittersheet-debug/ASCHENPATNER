@@ -11,7 +11,13 @@ Provides interactive inline buttons for all admin management menus:
 
 from typing import List, Optional, Tuple
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from mediapatner.database.models import AdminDeviceRecord, OperationalHoursConfig, PosterReportRecord
+from mediapatner.database.models import (
+    AdminDeviceRecord,
+    OperationalHoursConfig,
+    PosterReportRecord,
+    BroadcastBotRecord,
+    ChannelSettings,
+)
 
 
 def get_admin_main_keyboard() -> InlineKeyboardMarkup:
@@ -20,6 +26,9 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Dashboard Overview", callback_data="admin_menu:overview"),
+            ],
+            [
+                InlineKeyboardButton(text="📢 Kontrol Channel & Multi-Bot", callback_data="admin_menu:channel_control"),
             ],
             [
                 InlineKeyboardButton(text="📱 Login Device", callback_data="admin_menu:login_device"),
@@ -507,6 +516,226 @@ def get_ping_channel_keyboard() -> InlineKeyboardMarkup:
                 )
             ],
             [get_back_to_admin_button()],
+        ]
+    )
+
+
+# ------------------ CHANNEL CONTROL & MULTI-BOT KEYBOARDS ------------------
+
+def get_channel_control_keyboard(channels: ChannelSettings) -> InlineKeyboardMarkup:
+    """
+    Dashboard Kontrol Channel with dynamic toggle labels matching requirement B:
+    - 🟢 AKTIFKAN CHANNEL 1 / 🔴 NONAKTIFKAN CHANNEL 1
+    - 🟢 AKTIFKAN CHANNEL 2 / 🔴 NONAKTIFKAN CHANNEL 2
+    - 🟢 AKTIFKAN CHANNEL POSTER / 🔴 NONAKTIFKAN CHANNEL POSTER
+    - 🔄 SINKRONISASI BOT
+    - ⚙️ PENGATURAN CHANNEL
+    - 📊 RIWAYAT PENYEBARAN
+    """
+    # Button 1: Channel 1
+    btn_ch1 = (
+        InlineKeyboardButton(text="🔴 NONAKTIFKAN CHANNEL 1", callback_data="chan_toggle:ch1:off")
+        if channels.channel_1_enabled
+        else InlineKeyboardButton(text="🟢 AKTIFKAN CHANNEL 1", callback_data="chan_toggle:ch1:on")
+    )
+
+    # Button 2: Channel 2
+    btn_ch2 = (
+        InlineKeyboardButton(text="🔴 NONAKTIFKAN CHANNEL 2", callback_data="chan_toggle:ch2:off")
+        if channels.channel_2_enabled
+        else InlineKeyboardButton(text="🟢 AKTIFKAN CHANNEL 2", callback_data="chan_toggle:ch2:on")
+    )
+
+    # Button 3: Channel Poster
+    btn_poster = (
+        InlineKeyboardButton(text="🔴 NONAKTIFKAN CHANNEL POSTER", callback_data="chan_toggle:poster:off")
+        if channels.poster_enabled
+        else InlineKeyboardButton(text="🟢 AKTIFKAN CHANNEL POSTER", callback_data="chan_toggle:poster:on")
+    )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [btn_ch1],
+            [btn_ch2],
+            [btn_poster],
+            [
+                InlineKeyboardButton(text="🔄 SINKRONISASI BOT", callback_data="admin_act:sync_bots"),
+                InlineKeyboardButton(text="⚙️ PENGATURAN CHANNEL", callback_data="admin_menu:chan_settings"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 RIWAYAT PENYEBARAN", callback_data="admin_menu:broadcast_history:0"),
+                InlineKeyboardButton(text="🤖 MANAJEMEN BOT", callback_data="admin_menu:bot_mgmt"),
+            ],
+            [
+                InlineKeyboardButton(text="📢 KIRIM SIARAN PESAN", callback_data="admin_menu:broadcast_send"),
+            ],
+            [get_back_to_admin_button()],
+        ]
+    )
+
+
+def get_channel_settings_keyboard(channels: ChannelSettings) -> InlineKeyboardMarkup:
+    """Settings menu for Channel 1 and Channel 2 IDs."""
+    ch1_label = f"ID: {channels.channel_1_id}" if channels.channel_1_id else "Belum Diatur"
+    ch2_label = f"ID: {channels.channel_2_id}" if channels.channel_2_id else "Belum Diatur"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"✏️ Atur Channel 1 ({ch1_label})",
+                    callback_data="chan_set_id:ch1",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"✏️ Atur Channel 2 ({ch2_label})",
+                    callback_data="chan_set_id:ch2",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔒 Channel Utama: -1002123283346 (Tetap)",
+                    callback_data="noop_channel_main_info",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔒 Channel Poster: -1003512801822 (Tetap)",
+                    callback_data="noop_channel_poster_info",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Kembali ke Kontrol Channel",
+                    callback_data="admin_menu:channel_control",
+                )
+            ],
+        ]
+    )
+
+
+def get_broadcast_history_keyboard(page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """Paginated navigation for broadcast history monitoring."""
+    nav_row = []
+    if page > 0:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="◀️ Sebelumnya", callback_data=f"admin_menu:broadcast_history:{page - 1}"
+            )
+        )
+    nav_row.append(
+        InlineKeyboardButton(
+            text=f"Hal {page + 1}/{max(1, total_pages)}",
+            callback_data="noop_history_page",
+        )
+    )
+    if page < total_pages - 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                text="Berikutnya ▶️", callback_data=f"admin_menu:broadcast_history:{page + 1}"
+            )
+        )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            nav_row,
+            [
+                InlineKeyboardButton(
+                    text="🔄 Segarkan Riwayat",
+                    callback_data=f"admin_menu:broadcast_history:{page}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Kembali ke Kontrol Channel",
+                    callback_data="admin_menu:channel_control",
+                )
+            ],
+        ]
+    )
+
+
+def get_bot_management_keyboard(bots: List[BroadcastBotRecord]) -> InlineKeyboardMarkup:
+    """Lists registered bots and shows add/sync options."""
+    keyboard = [
+        [
+            InlineKeyboardButton(text="➕ Tambah Bot Baru", callback_data="bot_act:add"),
+            InlineKeyboardButton(text="🔄 Sinkronisasi Izin", callback_data="admin_act:sync_bots"),
+        ]
+    ]
+
+    for b in bots:
+        status_ico = "🟢" if b.is_verified else "🟡"
+        role_map = {
+            "channel_1": "CH 1",
+            "channel_2": "CH 2",
+            "poster": "POSTER",
+            "cadangan": "CADANGAN",
+        }
+        role_label = role_map.get(b.role, b.role.upper())
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{status_ico} @{b.bot_username} — [{role_label}]",
+                    callback_data=f"bot_detail:{b.bot_id}",
+                )
+            ]
+        )
+
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                text="🔙 Kembali ke Kontrol Channel",
+                callback_data="admin_menu:channel_control",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_bot_detail_keyboard(bot_id: int, current_role: str) -> InlineKeyboardMarkup:
+    """Role assignment and removal options for a specific bot."""
+    def check_mark(r: str) -> str:
+        return " (Aktif)" if r == current_role else ""
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"🎯 Jadikan Bot Channel 1{check_mark('channel_1')}",
+                    callback_data=f"bot_set_role:{bot_id}:channel_1",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🎯 Jadikan Bot Channel 2{check_mark('channel_2')}",
+                    callback_data=f"bot_set_role:{bot_id}:channel_2",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🎯 Jadikan Bot Poster{check_mark('poster')}",
+                    callback_data=f"bot_set_role:{bot_id}:poster",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🛡 Jadikan Bot Cadangan{check_mark('cadangan')}",
+                    callback_data=f"bot_set_role:{bot_id}:cadangan",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🗑 Hapus Bot dari Sistem",
+                    callback_data=f"bot_act:delete:{bot_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Kembali ke Daftar Bot",
+                    callback_data="admin_menu:bot_mgmt",
+                ),
+            ],
         ]
     )
 

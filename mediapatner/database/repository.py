@@ -15,6 +15,10 @@ from mediapatner.database.models import (
     AdminDeviceRecord,
     PosterReportRecord,
     OperationalHoursConfig,
+    BroadcastBotRecord,
+    BroadcastQueueRecord,
+    BroadcastHistoryRecord,
+    ChannelSettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -707,4 +711,364 @@ class Repository:
         await self.set_setting("operational_open_hour", str(open_hour))
         await self.set_setting("operational_close_hour", str(close_hour))
         await self.set_setting("operational_sunday_closed", "true" if sunday_closed else "false")
+
+    # ------------------ CHANNEL CONFIGURATION & ON/OFF CONTROL ------------------
+    async def get_channel_settings(self) -> ChannelSettings:
+        main_id = await self.get_setting("channel_main_id", "-1002123283346")
+        main_en = (await self.get_setting("channel_main_enabled", "true")).lower() in ("true", "1", "yes", "on")
+        poster_id = await self.get_setting("channel_poster_id", "-1003512801822")
+        poster_en = (await self.get_setting("channel_poster_enabled", "true")).lower() in ("true", "1", "yes", "on")
+        ch1_id = await self.get_setting("channel_1_id", "")
+        ch1_en = (await self.get_setting("channel_1_enabled", "false")).lower() in ("true", "1", "yes", "on")
+        ch2_id = await self.get_setting("channel_2_id", "")
+        ch2_en = (await self.get_setting("channel_2_enabled", "false")).lower() in ("true", "1", "yes", "on")
+        return ChannelSettings(
+            main_id=main_id,
+            main_enabled=main_en,
+            poster_id=poster_id,
+            poster_enabled=poster_en,
+            channel_1_id=ch1_id,
+            channel_1_enabled=ch1_en,
+            channel_2_id=ch2_id,
+            channel_2_enabled=ch2_en,
+        )
+
+    async def set_channel_enabled(self, channel_key: str, enabled: bool) -> None:
+        key = f"channel_{channel_key}_enabled"
+        await self.set_setting(key, "true" if enabled else "false")
+
+    async def set_channel_id(self, channel_key: str, channel_id: str) -> None:
+        key = f"channel_{channel_key}_id"
+        await self.set_setting(key, str(channel_id).strip())
+
+    # ------------------ MULTI-BOT MANAGEMENT ------------------
+    async def upsert_broadcast_bot(self, bot: BroadcastBotRecord) -> int:
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO broadcast_bots (
+                    token, bot_id, bot_username, bot_first_name, role,
+                    is_active, is_verified, verified_at, permissions, last_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(token) DO UPDATE SET
+                    bot_id = excluded.bot_id,
+                    bot_username = excluded.bot_username,
+                    bot_first_name = excluded.bot_first_name,
+                    role = excluded.role,
+                    is_active = excluded.is_active,
+                    is_verified = excluded.is_verified,
+                    verified_at = excluded.verified_at,
+                    permissions = excluded.permissions,
+                    last_status = excluded.last_status,
+                    updated_at = datetime('now', 'localtime')
+                """,
+                (
+                    bot.token,
+                    bot.bot_id,
+                    bot.bot_username,
+                    bot.bot_first_name,
+                    bot.role,
+                    1 if bot.is_active else 0,
+                    1 if bot.is_verified else 0,
+                    bot.verified_at,
+                    bot.permissions,
+                    bot.last_status,
+                ),
+            )
+            await conn.commit()
+            return cursor.lastrowid or 0
+
+    async def get_all_broadcast_bots(self) -> List[BroadcastBotRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                "SELECT * FROM broadcast_bots ORDER BY id ASC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [self._row_to_bot_record(r) for r in rows]
+
+    async def get_broadcast_bot_by_id(self, bot_id: int) -> Optional[BroadcastBotRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                "SELECT * FROM broadcast_bots WHERE bot_id = ?", (bot_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return self._row_to_bot_record(row) if row else None
+
+    async def get_broadcast_bot_by_role(self, role: str) -> Optional[BroadcastBotRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                "SELECT * FROM broadcast_bots WHERE role = ? AND is_active = 1 LIMIT 1", (role,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                return self._row_to_bot_record(row) if row else None
+
+    async def get_backup_bots(self) -> List[BroadcastBotRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                "SELECT * FROM broadcast_bots WHERE role = 'cadangan' AND is_active = 1 AND is_verified = 1"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [self._row_to_bot_record(r) for r in rows]
+
+    async def set_broadcast_bot_role(self, bot_id: int, role: str) -> bool:
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE broadcast_bots SET role = ?, updated_at = datetime('now', 'localtime') WHERE bot_id = ?",
+                (role, bot_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def update_broadcast_bot_status(
+        self, bot_id: int, is_verified: bool, permissions_json: str, last_status: str
+    ) -> bool:
+        async with self.db.connection() as conn:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor = await conn.execute(
+                """
+                UPDATE broadcast_bots
+                SET is_verified = ?,
+                    verified_at = ?,
+                    permissions = ?,
+                    last_status = ?,
+                    updated_at = datetime('now', 'localtime')
+                WHERE bot_id = ?
+                """,
+                (1 if is_verified else 0, now_str if is_verified else None, permissions_json, last_status, bot_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def delete_broadcast_bot(self, bot_id: int) -> bool:
+        async with self.db.connection() as conn:
+            cursor = await conn.execute("DELETE FROM broadcast_bots WHERE bot_id = ?", (bot_id,))
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    def _row_to_bot_record(self, r: aiosqlite.Row) -> BroadcastBotRecord:
+        return BroadcastBotRecord(
+            id=r["id"],
+            token=r["token"],
+            bot_id=r["bot_id"],
+            bot_username=r["bot_username"],
+            bot_first_name=r["bot_first_name"],
+            role=r["role"],
+            is_active=bool(r["is_active"]),
+            is_verified=bool(r["is_verified"]),
+            verified_at=r["verified_at"],
+            permissions=r["permissions"],
+            last_status=r["last_status"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
+        )
+
+    # ------------------ BROADCAST QUEUE & ATOMIC LOCK ------------------
+    async def enqueue_broadcast_job(self, job: BroadcastQueueRecord) -> Optional[int]:
+        """Enqueues a broadcast job using idempotency key to prevent duplication."""
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT OR IGNORE INTO broadcast_queue (
+                    job_id, idempotency_key, job_type, payload_id,
+                    target_channel_id, target_channel_name, assigned_bot_id,
+                    assigned_role, status, retry_count, max_retries
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job.job_id,
+                    job.idempotency_key,
+                    job.job_type,
+                    job.payload_id,
+                    job.target_channel_id,
+                    job.target_channel_name,
+                    job.assigned_bot_id,
+                    job.assigned_role,
+                    job.status or "PENDING",
+                    job.retry_count,
+                    job.max_retries,
+                ),
+            )
+            await conn.commit()
+            return cursor.lastrowid
+
+    async def get_pending_broadcast_jobs(self, limit: int = 10) -> List[BroadcastQueueRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                """
+                SELECT * FROM broadcast_queue
+                WHERE status = 'PENDING'
+                ORDER BY id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [self._row_to_queue_record(r) for r in rows]
+
+    async def lock_broadcast_job(self, job_id: str, worker_id: str) -> bool:
+        """Atomically locks a pending broadcast job for execution."""
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE broadcast_queue
+                SET status = 'PROCESSING',
+                    locked_at = datetime('now', 'localtime'),
+                    locked_by = ?,
+                    updated_at = datetime('now', 'localtime')
+                WHERE job_id = ? AND status = 'PENDING'
+                """,
+                (worker_id, job_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def mark_broadcast_job_success(self, job_id: str) -> bool:
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE broadcast_queue
+                SET status = 'SUCCESS',
+                    locked_at = NULL,
+                    updated_at = datetime('now', 'localtime')
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def mark_broadcast_job_failed(
+        self, job_id: str, error_msg: str, increment_retry: bool = True
+    ) -> bool:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                "SELECT retry_count, max_retries FROM broadcast_queue WHERE job_id = ?", (job_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+                current_retries = row["retry_count"]
+                max_retries = row["max_retries"]
+
+            new_retries = current_retries + 1 if increment_retry else current_retries
+            new_status = "FAILED" if new_retries >= max_retries else "PENDING"
+
+            cursor = await conn.execute(
+                """
+                UPDATE broadcast_queue
+                SET status = ?,
+                    retry_count = ?,
+                    last_error = ?,
+                    locked_at = NULL,
+                    updated_at = datetime('now', 'localtime')
+                WHERE job_id = ?
+                """,
+                (new_status, new_retries, error_msg, job_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+
+    async def cancel_pending_jobs_for_channel(self, channel_id: str) -> int:
+        """Immediately halts any pending or queued jobs for a channel when turned OFF."""
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                UPDATE broadcast_queue
+                SET status = 'CANCELLED',
+                    last_error = 'Channel was turned OFF by administrator',
+                    locked_at = NULL,
+                    updated_at = datetime('now', 'localtime')
+                WHERE target_channel_id = ? AND status IN ('PENDING', 'PROCESSING')
+                """,
+                (channel_id,),
+            )
+            await conn.commit()
+            return cursor.rowcount
+
+    def _row_to_queue_record(self, r: aiosqlite.Row) -> BroadcastQueueRecord:
+        return BroadcastQueueRecord(
+            id=r["id"],
+            job_id=r["job_id"],
+            idempotency_key=r["idempotency_key"],
+            job_type=r["job_type"],
+            payload_id=r["payload_id"],
+            target_channel_id=r["target_channel_id"],
+            target_channel_name=r["target_channel_name"],
+            assigned_bot_id=r["assigned_bot_id"],
+            assigned_role=r["assigned_role"],
+            status=r["status"],
+            retry_count=r["retry_count"],
+            max_retries=r["max_retries"],
+            locked_at=r["locked_at"],
+            locked_by=r["locked_by"],
+            last_error=r["last_error"],
+            created_at=r["created_at"],
+            updated_at=r["updated_at"],
+        )
+
+    # ------------------ BROADCAST HISTORY & MONITORING ------------------
+    async def record_broadcast_history(self, entry: BroadcastHistoryRecord) -> int:
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO broadcast_history (
+                    job_id, bot_name, target_channel_id, target_channel_name,
+                    content_type, content_preview, sent_at, status,
+                    error_message, retry_count, published_message_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry.job_id,
+                    entry.bot_name,
+                    entry.target_channel_id,
+                    entry.target_channel_name,
+                    entry.content_type,
+                    entry.content_preview,
+                    entry.sent_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    entry.status,
+                    entry.error_message,
+                    entry.retry_count,
+                    entry.published_message_id,
+                ),
+            )
+            await conn.commit()
+            return cursor.lastrowid or 0
+
+    async def get_broadcast_history(
+        self, limit: int = 10, offset: int = 0
+    ) -> List[BroadcastHistoryRecord]:
+        async with self.db.connection() as conn:
+            async with conn.execute(
+                """
+                SELECT * FROM broadcast_history
+                ORDER BY id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    BroadcastHistoryRecord(
+                        id=r["id"],
+                        job_id=r["job_id"],
+                        bot_name=r["bot_name"],
+                        target_channel_id=r["target_channel_id"],
+                        target_channel_name=r["target_channel_name"],
+                        content_type=r["content_type"],
+                        content_preview=r["content_preview"],
+                        sent_at=r["sent_at"],
+                        status=r["status"],
+                        error_message=r["error_message"],
+                        retry_count=r["retry_count"],
+                        published_message_id=r["published_message_id"],
+                        created_at=r["created_at"],
+                    )
+                    for r in rows
+                ]
+
+    async def get_broadcast_history_count(self) -> int:
+        async with self.db.connection() as conn:
+            async with conn.execute("SELECT COUNT(*) as count FROM broadcast_history") as cursor:
+                row = await cursor.fetchone()
+                return row["count"] if row else 0
 

@@ -27,17 +27,65 @@ class PublisherService:
         settings: Settings,
         repository: Repository,
         notification_service: NotificationService,
+        multi_bot_service: Optional[Any] = None,
     ):
         self.bot = bot
         self.settings = settings
         self.repository = repository
         self.notification_service = notification_service
+        self.multi_bot_service = multi_bot_service
 
     async def publish_poster(self, poster: PosterRecord) -> bool:
         """
-        Publishes a poster to the main channel @ASCHENEO.
-        Ensures native forward from channel is preserved, and the exact text is unchanged.
+        Publishes a poster.
+        If multi_bot_service is configured, routes via Section D:
+        Directed exclusively to Channel Poster (-1003512801822) with multi-bot failover and queue.
         """
+        if self.multi_bot_service:
+            success, published_msg_id, message = await self.multi_bot_service.dispatch_poster_publication(poster)
+            now_wib = get_current_wib()
+            current_date_str = format_indonesian_date(now_wib)
+            current_time_str = format_indonesian_time(now_wib)
+
+            if success and published_msg_id is not None:
+                await self.repository.mark_published(poster.id, published_message_id=published_msg_id)
+                await self.repository.log_activity(
+                    action="PUBLISHED",
+                    poster_id=poster.id,
+                    user_id=poster.sender_id,
+                    details=f"Published to Channel Poster (-1003512801822) as msg_id {published_msg_id}",
+                )
+                await self.notification_service.send_post_success_to_user(poster.sender_id)
+                await self.notification_service.send_channel_post_success_report(
+                    sender_name=poster.sender_name,
+                    slot_date=current_date_str,
+                    slot_time=current_time_str,
+                )
+                return True
+            else:
+                channels = await self.repository.get_channel_settings()
+                if not channels.poster_enabled:
+                    logger.info(f"Poster #{poster.id} halted because Channel Poster is OFF.")
+                    return False
+
+                err_msg = message
+                logger.error(f"Publication failed for poster #{poster.id}: {err_msg}")
+                if poster.retry_count + 1 >= self.settings.retry_max_attempts:
+                    await self.repository.mark_failed(poster.id, err_msg, increment_retry=True)
+                    await self.repository.log_activity(
+                        action="PUBLISH_FAILED",
+                        poster_id=poster.id,
+                        user_id=poster.sender_id,
+                        details=f"Permanent failure after {poster.retry_count + 1} attempts: {err_msg}",
+                    )
+                    await self.notification_service.send_channel_post_failure_report(
+                        sender_name=poster.sender_name,
+                        source_link=poster.source_link,
+                        reason=err_msg,
+                    )
+                else:
+                    await self.repository.mark_failed(poster.id, err_msg, increment_retry=True)
+                return False
         main_channel = self.settings.channel_username
         auto_forward_enabled = await self.repository.is_auto_forward_enabled()
         raw_data = poster.get_parsed_raw()

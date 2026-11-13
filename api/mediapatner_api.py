@@ -159,6 +159,67 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
                 "health_status": "TERPUTUS / GAGAL ❌",
             }
 
+    elif action == "channel_control":
+        channels = await repo.get_channel_settings()
+        bots = await repo.get_all_broadcast_bots()
+        hist_count = await repo.get_broadcast_history_count()
+        return {
+            "success": True,
+            "channels": {
+                "main_id": channels.main_id,
+                "main_enabled": channels.main_enabled,
+                "poster_id": channels.poster_id,
+                "poster_enabled": channels.poster_enabled,
+                "channel_1_id": channels.channel_1_id,
+                "channel_1_enabled": channels.channel_1_enabled,
+                "channel_2_id": channels.channel_2_id,
+                "channel_2_enabled": channels.channel_2_enabled,
+            },
+            "bots": [
+                {
+                    "bot_id": b.bot_id,
+                    "username": b.bot_username,
+                    "first_name": b.bot_first_name,
+                    "masked_token": b.get_masked_token(),
+                    "role": b.role,
+                    "is_active": b.is_active,
+                    "is_verified": b.is_verified,
+                    "last_status": b.last_status,
+                }
+                for b in bots
+            ],
+            "stats": {
+                "history_count": hist_count,
+                "active_bots": len([b for b in bots if b.is_active]),
+            },
+        }
+
+    elif action == "broadcast_history":
+        limit = int(query_params.get("limit", ["20"])[0])
+        offset = int(query_params.get("offset", ["0"])[0])
+        history_items = await repo.get_broadcast_history(limit=limit, offset=offset)
+        total_count = await repo.get_broadcast_history_count()
+        return {
+            "success": True,
+            "total_count": total_count,
+            "items": [
+                {
+                    "job_id": h.job_id,
+                    "bot_name": h.bot_name,
+                    "target_channel_id": h.target_channel_id,
+                    "target_channel_name": h.target_channel_name,
+                    "content_type": h.content_type,
+                    "content_preview": h.content_preview,
+                    "sent_at": h.sent_at,
+                    "status": h.status,
+                    "error_message": h.error_message,
+                    "retry_count": h.retry_count,
+                    "published_message_id": h.published_message_id,
+                }
+                for h in history_items
+            ],
+        }
+
     return {"success": False, "error": f"Unknown action: {action}"}
 
 
@@ -271,6 +332,117 @@ async def handle_post_request(body_data: dict) -> dict:
                 "success": False,
                 "error": f"Gagal menyebarkan poster #{poster_id}. Silakan periksa izin bot di channel {settings.channel_username}.",
             }
+
+    elif action == "toggle_channel":
+        channel_key = body_data.get("channel_key")  # 'ch1', 'ch2', 'poster'
+        enabled = bool(body_data.get("enabled"))
+        channels = await repo.get_channel_settings()
+
+        if enabled:
+            if channel_key == "ch1" and not channels.channel_1_id:
+                return {"success": False, "error": "ID Channel 1 belum dikonfigurasi. Atur ID terlebih dahulu."}
+            elif channel_key == "ch2" and not channels.channel_2_id:
+                return {"success": False, "error": "ID Channel 2 belum dikonfigurasi. Atur ID terlebih dahulu."}
+
+        await repo.set_channel_enabled(channel_key, enabled)
+        if not enabled:
+            target_cid = (
+                channels.channel_1_id if channel_key == "ch1"
+                else (channels.channel_2_id if channel_key == "ch2" else channels.poster_id)
+            )
+            if target_cid:
+                await repo.cancel_pending_jobs_for_channel(target_cid)
+
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+        return {"success": True, "message": f"Channel {channel_key} berhasil diubah statusnya."}
+
+    elif action == "set_channel_id":
+        channel_key = body_data.get("channel_key")  # '1' or '2'
+        channel_id = str(body_data.get("channel_id", "")).strip()
+        if not channel_id:
+            return {"success": False, "error": "channel_id tidak boleh kosong."}
+
+        await repo.set_channel_id(channel_key, channel_id)
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+        return {"success": True, "message": f"ID Channel {channel_key} berhasil diperbarui menjadi {channel_id}."}
+
+    elif action == "set_bot_role":
+        bot_id = int(body_data.get("bot_id", 0))
+        role = body_data.get("role")
+        if not bot_id or not role:
+            return {"success": False, "error": "bot_id dan role wajib disertakan."}
+
+        await repo.set_broadcast_bot_role(bot_id, role)
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+        return {"success": True, "message": f"Peran bot {bot_id} berhasil diubah menjadi {role}."}
+
+    elif action == "add_bot":
+        token = str(body_data.get("token", "")).strip()
+        if not token or ":" not in token:
+            return {"success": False, "error": "Token bot tidak valid."}
+
+        from mediapatner.services.multi_bot_service import MultiBotService
+        from mediapatner.database.models import BroadcastBotRecord
+
+        mbs = MultiBotService(repo, settings)
+        is_valid, me_info, err = await mbs.verify_bot_token(token)
+        if not is_valid or not me_info:
+            return {"success": False, "error": f"Verifikasi bot gagal: {err}"}
+
+        bot_record = BroadcastBotRecord(
+            id=None,
+            token=token,
+            bot_id=me_info["id"],
+            bot_username=me_info["username"],
+            bot_first_name=me_info.get("first_name"),
+            role="cadangan",
+            is_active=True,
+            is_verified=False,
+            last_status="BARU_DIDAFTARKAN",
+        )
+        await repo.upsert_broadcast_bot(bot_record)
+        await mbs.sync_all_bots()
+
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "message": f"Bot @{me_info['username']} berhasil didaftarkan.",
+            "bot": {
+                "bot_id": me_info["id"],
+                "username": me_info["username"],
+                "first_name": me_info.get("first_name"),
+            },
+        }
+
+    elif action == "sync_bots":
+        from mediapatner.services.multi_bot_service import MultiBotService
+        mbs = MultiBotService(repo, settings)
+        audit_results = await mbs.sync_all_bots()
+
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+
+        return {"success": True, "results": audit_results}
 
     return {"success": False, "error": f"Unknown post action: {action}"}
 

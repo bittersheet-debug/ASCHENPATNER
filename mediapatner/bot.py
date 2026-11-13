@@ -17,6 +17,7 @@ from mediapatner.services.notification_service import NotificationService
 from mediapatner.services.publisher_service import PublisherService
 from mediapatner.services.scheduler_service import SchedulerService
 from mediapatner.services.report_service import ReportService
+from mediapatner.services.multi_bot_service import MultiBotService
 from mediapatner.middlewares.rate_limit import RateLimitMiddleware
 from mediapatner.middlewares.logging_mw import SafeLoggingMiddleware
 from mediapatner.handlers.user import router as user_router
@@ -45,11 +46,17 @@ class MediaPatnerApplication:
         # Services
         self.processor = PosterProcessor(self.repository)
         self.notification_service = NotificationService(self.bot, self.settings)
+        self.multi_bot_service = MultiBotService(
+            repository=self.repository,
+            settings=self.settings,
+            default_bot=self.bot,
+        )
         self.publisher_service = PublisherService(
             bot=self.bot,
             settings=self.settings,
             repository=self.repository,
             notification_service=self.notification_service,
+            multi_bot_service=self.multi_bot_service,
         )
         self.report_service = ReportService(
             bot=self.bot,
@@ -73,6 +80,7 @@ class MediaPatnerApplication:
         self.dp["repository"] = self.repository
         self.dp["processor"] = self.processor
         self.dp["notification_service"] = self.notification_service
+        self.dp["multi_bot_service"] = self.multi_bot_service
         self.dp["report_service"] = self.report_service
         self.dp["publisher_service"] = self.publisher_service
         self.dp["scheduler_service"] = self.scheduler_service

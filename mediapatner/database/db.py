@@ -107,6 +107,67 @@ CREATE TABLE IF NOT EXISTS poster_reports (
 
 CREATE INDEX IF NOT EXISTS idx_poster_reports_status ON poster_reports(status);
 CREATE INDEX IF NOT EXISTS idx_poster_reports_poster_id ON poster_reports(poster_id);
+
+CREATE TABLE IF NOT EXISTS broadcast_bots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT UNIQUE NOT NULL,
+    bot_id INTEGER NOT NULL,
+    bot_username TEXT NOT NULL,
+    bot_first_name TEXT,
+    role TEXT NOT NULL DEFAULT 'cadangan',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    is_verified INTEGER NOT NULL DEFAULT 0,
+    verified_at TEXT,
+    permissions TEXT,
+    last_status TEXT DEFAULT 'OK',
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_bots_role ON broadcast_bots(role);
+CREATE INDEX IF NOT EXISTS idx_broadcast_bots_active ON broadcast_bots(is_active);
+
+CREATE TABLE IF NOT EXISTS broadcast_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT UNIQUE NOT NULL,
+    idempotency_key TEXT UNIQUE NOT NULL,
+    job_type TEXT NOT NULL,
+    payload_id INTEGER,
+    target_channel_id TEXT NOT NULL,
+    target_channel_name TEXT,
+    assigned_bot_id INTEGER,
+    assigned_role TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    locked_at TEXT,
+    locked_by TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_queue_status ON broadcast_queue(status);
+CREATE INDEX IF NOT EXISTS idx_broadcast_queue_idempotency ON broadcast_queue(idempotency_key);
+
+CREATE TABLE IF NOT EXISTS broadcast_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    bot_name TEXT NOT NULL,
+    target_channel_id TEXT NOT NULL,
+    target_channel_name TEXT,
+    content_type TEXT NOT NULL,
+    content_preview TEXT,
+    sent_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    status TEXT NOT NULL,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    published_message_id INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_broadcast_history_sent ON broadcast_history(sent_at);
+CREATE INDEX IF NOT EXISTS idx_broadcast_history_status ON broadcast_history(status);
 """
 
 
@@ -140,11 +201,32 @@ class Database:
                 ("operational_open_hour", "6"),
                 ("operational_close_hour", "22"),
                 ("operational_sunday_closed", "true"),
+                ("channel_main_id", "-1002123283346"),
+                ("channel_main_enabled", "true"),
+                ("channel_poster_id", "-1003512801822"),
+                ("channel_poster_enabled", "true"),
+                ("channel_1_id", ""),
+                ("channel_1_enabled", "false"),
+                ("channel_2_id", ""),
+                ("channel_2_enabled", "false"),
             ]
             for key, val in defaults:
                 await db.execute(
                     "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val)
                 )
+
+            # Seed default primary bot (@PATNERASCHENBOT) if not present
+            primary_token = os.getenv("MEDIAPATNER_BOT_TOKEN") or "9068758227:AAEOuuxsLvDznlEvAqjgQ-H8jafPg15XHv4"
+            primary_bot_id = 9068758227
+            primary_bot_username = "PATNERASCHENBOT"
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO broadcast_bots (
+                    token, bot_id, bot_username, bot_first_name, role, is_active, is_verified, last_status
+                ) VALUES (?, ?, ?, ?, 'poster', 1, 1, 'OK')
+                """,
+                (primary_token, primary_bot_id, primary_bot_username, "PATNER ASCHEN"),
+            )
             await db.commit()
         logger.info("Database initialized successfully.")
 
