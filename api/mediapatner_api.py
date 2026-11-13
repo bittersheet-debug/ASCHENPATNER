@@ -10,6 +10,7 @@ import os
 import sys
 import asyncio
 import urllib.parse
+from datetime import datetime
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -240,6 +241,9 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
                 }
             except Exception as e:
                 elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
+                err_msg = str(e)
+                if "400" in err_msg or "not found" in err_msg.lower():
+                    err_msg = "Saluran belum dapat diakses: Bot belum dimasukkan ke channel ini sebagai Administrator."
                 results[key] = {
                     "success": False,
                     "channel": str(cid),
@@ -247,7 +251,7 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
                     "latency_ms": elapsed_ms,
                     "message_sent": False,
                     "message_id": None,
-                    "error": str(e),
+                    "error": err_msg,
                     "health_status": "TERPUTUS / BELUM DI-ADMINKAN ❌",
                 }
 
