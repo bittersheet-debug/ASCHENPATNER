@@ -604,9 +604,29 @@ def get_ping_channel_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🔄 Cek Ulang Ping Channel",
+                    text="🔄 Cek & Ping Ulang Semua Saluran",
                     callback_data="admin_menu:ping_channel",
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌟 Ping Channel Utama",
+                    callback_data="chan_ping:main",
+                ),
+                InlineKeyboardButton(
+                    text="📢 Ping Channel Sebar",
+                    callback_data="chan_ping:poster",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚙️ PENGATURAN CHANNEL",
+                    callback_data="admin_menu:channel_control",
+                ),
+                InlineKeyboardButton(
+                    text="📊 RIWAYAT PENYEBARAN",
+                    callback_data="chan_menu:history",
+                ),
             ],
             [get_back_to_admin_button()],
         ]

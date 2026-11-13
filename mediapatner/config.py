@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     # Main Broadcast Channel Configuration
     channel_username: str = Field(default="@ASCHENEO", validation_alias="CHANNEL_USERNAME")
     channel_link: str = Field(default="https://t.me/ASCHENEO", validation_alias="CHANNEL_LINK")
+    channel_main_id: str = Field(default="-1002123283346", validation_alias="CHANNEL_MAIN_ID")
+    channel_poster_id: str = Field(default="-1003512801822", validation_alias="CHANNEL_POSTER_ID")
 
     # Permanent Notification Channel ID (-1004479248551)
     # Status: PERMANENT - Cannot be altered via dashboard or config

@@ -166,15 +166,15 @@ class BroadcastQueueRecord:
 
 @dataclass
 class BroadcastHistoryRecord:
-    id: Optional[int]
     job_id: str
     bot_name: str
     target_channel_id: str
-    target_channel_name: Optional[str]
     content_type: str
-    content_preview: Optional[str]
     sent_at: str
     status: str  # 'SUCCESS', 'FAILED'
+    id: Optional[int] = None
+    target_channel_name: Optional[str] = None
+    content_preview: Optional[str] = None
     error_message: Optional[str] = None
     retry_count: int = 0
     published_message_id: Optional[int] = None

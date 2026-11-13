@@ -42,12 +42,16 @@ class handler(BaseHTTPRequestHandler):
 
             else:
                 # Default: setup webhook
-                encoded_url = urllib.parse.quote(webhook_url, safe="")
-                tg_url = (
-                    f"https://api.telegram.org/bot{token}/setWebhook"
-                    f"?url={encoded_url}&allowed_updates=message,callback_query"
+                setup_payload = json.dumps({
+                    "url": webhook_url,
+                    "allowed_updates": ["message", "channel_post", "callback_query", "my_chat_member", "chat_member"],
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{token}/setWebhook",
+                    data=setup_payload,
+                    headers={"Content-Type": "application/json"},
                 )
-                with urllib.request.urlopen(tg_url, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 response_data = {
                     "success": True,

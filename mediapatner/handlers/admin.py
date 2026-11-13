@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ChatMemberUpdated
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -39,6 +39,7 @@ from mediapatner.database.models import (
 from mediapatner.services.publisher_service import PublisherService
 from mediapatner.services.report_service import ReportService
 from mediapatner.services.multi_bot_service import MultiBotService
+from mediapatner.services.notification_service import NotificationService
 from mediapatner.services.scheduler_service import (
     calculate_next_wib_slot,
     format_indonesian_date,
@@ -1188,7 +1189,82 @@ async def handle_toggle_auto_forward(
     await handle_settings_menu(callback, repository, settings)
 
 
-# ------------------ PING CHANNEL SIARAN (@ASCHENEO) ------------------
+# ------------------ PING CHANNEL SIARAN (@ASCHENEO & CHANNEL POSTER) ------------------
+
+
+def render_ping_results_text(ping_data: dict) -> str:
+    channels = ping_data.get("channels", {})
+    text = (
+        "𓄲 **STATUS PING SALURAN SIARAN ASCHEN** 𓈒\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📡 *Uji Konektivitas & Pengiriman Pesan Langsung ke Channel*\n\n"
+    )
+
+    main_info = channels.get("main")
+    if main_info:
+        m_sent = main_info.get("message_sent", False)
+        m_id = main_info.get("message_id")
+        m_lat = main_info.get("latency_ms", 0)
+        m_admin = main_info.get("is_admin", False)
+        m_post = main_info.get("can_post", False)
+        m_title = main_info.get("chat_title", "-")
+        m_cid = main_info.get("channel", "-1002123283346")
+
+        text += (
+            "🌟 **CHANNEL UTAMA (@ASCHENEO):**\n"
+            f"➤ **Saluran:** {m_title} (`{m_cid}`)\n"
+            f"➤ **Status Bot:** `{'Administrator ✅' if m_admin else 'Bukan Admin ❌'}`\n"
+            f"➤ **Izin Kirim Pesan:** `{'AKTIF ✅' if m_post else 'NONAKTIF ❌'}`\n"
+            f"➤ **Pesan Saluran:** `{'TERKIRIM KE CHANNEL ✅ (ID: #' + str(m_id) + ')' if m_sent else 'GAGAL TERKIRIM ❌'}`\n"
+            f"➤ **Latency:** `{m_lat} ms` ⚡\n"
+        )
+        if not main_info.get("success") and main_info.get("error"):
+            text += f"⚠️ *Error Utama:* `{main_info.get('error')}`\n"
+        text += "\n"
+
+    poster_info = channels.get("poster")
+    if poster_info:
+        p_sent = poster_info.get("message_sent", False)
+        p_id = poster_info.get("message_id")
+        p_lat = poster_info.get("latency_ms", 0)
+        p_admin = poster_info.get("is_admin", False)
+        p_post = poster_info.get("can_post", False)
+        p_title = poster_info.get("chat_title", "-")
+        p_cid = poster_info.get("channel", "-1003512801822")
+
+        text += (
+            "📢 **CHANNEL SEBAR (POSTER):**\n"
+            f"➤ **Saluran:** {p_title} (`{p_cid}`)\n"
+            f"➤ **Status Bot:** `{'Administrator ✅' if p_admin else 'Bukan Admin ❌'}`\n"
+            f"➤ **Izin Kirim Media/Pesan:** `{'AKTIF ✅' if p_post else 'NONAKTIF ❌'}`\n"
+            f"➤ **Pesan Saluran:** `{'TERKIRIM KE CHANNEL ✅ (ID: #' + str(p_id) + ')' if p_sent else 'GAGAL TERKIRIM ❌'}`\n"
+            f"➤ **Latency:** `{p_lat} ms` ⚡\n"
+        )
+        if not poster_info.get("success") and poster_info.get("error"):
+            text += (
+                f"⚠️ *Kendala Channel Sebar:* `{poster_info.get('error')}`\n"
+                "💡 *Solusi:* Tambahkan bot @PATNERASCHENBOT ke Channel Sebar sebagai Administrator dengan izin posting pesan.\n"
+            )
+        text += "\n"
+
+    # Optional channel 1 & 2
+    for ck, ctitle in [("1", "CHANNEL 1"), ("2", "CHANNEL 2")]:
+        c_info = channels.get(ck)
+        if c_info:
+            csent = c_info.get("message_sent", False)
+            cid = c_info.get("message_id")
+            text += (
+                f"🔹 **{ctitle}:**\n"
+                f"➤ **Saluran:** {c_info.get('chat_title')} (`{c_info.get('channel')}`)\n"
+                f"➤ **Pesan Saluran:** `{'TERKIRIM ✅ (ID: #' + str(cid) + ')' if csent else 'GAGAL ❌'}`\n\n"
+            )
+
+    text += (
+        "━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"➤ **Kondisi Sistem:** *{ping_data.get('health_status', '-')}*\n"
+        "ᵎ!ᵎ *Pesan ping telah dikirim langsung ke saluran yang aktif.*"
+    )
+    return text
 
 
 @router.message(Command("ping", "pingchannel"))
@@ -1201,23 +1277,10 @@ async def handle_ping_command(
     if not user or not is_admin_check(user.id, settings):
         return
 
-    status_msg = await message.answer("📡 *Melakukan Ping ke Channel Siaran...*", parse_mode="Markdown")
-    ping_data = await publisher_service.ping_channel()
+    status_msg = await message.answer("📡 *Melakukan Ping ke Channel Siaran & Mengirim Pesan Uji Coba...*", parse_mode="Markdown")
+    ping_data = await publisher_service.ping_all_channels(send_test_message=True)
 
-    text = (
-        "𓄲 STATUS PING CHANNEL SIARAN 𓈒\n\n"
-        f"➤ *Channel Tujuan:* `{ping_data.get('channel')}`\n"
-        f"➤ *Judul Channel:* *{ping_data.get('chat_title', '-')}*\n"
-        f"➤ *Status Bot:* `{ping_data.get('member_status', '-')}`\n"
-        f"➤ *Hak Administrator:* `{'YA ✅' if ping_data.get('is_admin') else 'TIDAK ❌'}`\n"
-        f"➤ *Izin Siaran (Post):* `{'AKTIF ✅' if ping_data.get('can_post') else 'NONAKTIF ❌'}`\n"
-        f"➤ *Izin Edit Pesan:* `{'AKTIF ✅' if ping_data.get('can_edit') else 'NONAKTIF ❌'}`\n"
-        f"➤ *Latency Telegram API:* `{ping_data.get('latency_ms', 0)} ms` ⚡\n"
-        f"➤ *Kondisi Sistem:* *{ping_data.get('health_status', '-')}*\n\n"
-    )
-    if not ping_data.get("success"):
-        text += f"⚠️ *Error:* `{ping_data.get('error')}`\n\n"
-    text += "Semua poster berstatus KEEP akan dikirimkan ke channel ini."
+    text = render_ping_results_text(ping_data)
 
     await status_msg.edit_text(
         text=text,
@@ -1237,29 +1300,238 @@ async def handle_ping_channel_callback(
         await callback.answer("Akses ditolak.", show_alert=True)
         return
 
-    await callback.answer("📡 Menghubungi Channel Siaran...", show_alert=False)
-    ping_data = await publisher_service.ping_channel()
+    await callback.answer("📡 Mengirim pesan ping ke saluran...", show_alert=False)
+    ping_data = await publisher_service.ping_all_channels(send_test_message=True)
 
-    text = (
-        "𓄲 STATUS PING CHANNEL SIARAN 𓈒\n\n"
-        f"➤ *Channel Tujuan:* `{ping_data.get('channel')}`\n"
-        f"➤ *Judul Channel:* *{ping_data.get('chat_title', '-')}*\n"
-        f"➤ *Status Bot:* `{ping_data.get('member_status', '-')}`\n"
-        f"➤ *Hak Administrator:* `{'YA ✅' if ping_data.get('is_admin') else 'TIDAK ❌'}`\n"
-        f"➤ *Izin Siaran (Post):* `{'AKTIF ✅' if ping_data.get('can_post') else 'NONAKTIF ❌'}`\n"
-        f"➤ *Izin Edit Pesan:* `{'AKTIF ✅' if ping_data.get('can_edit') else 'NONAKTIF ❌'}`\n"
-        f"➤ *Latency Telegram API:* `{ping_data.get('latency_ms', 0)} ms` ⚡\n"
-        f"➤ *Kondisi Sistem:* *{ping_data.get('health_status', '-')}*\n\n"
-    )
-    if not ping_data.get("success"):
-        text += f"⚠️ *Error:* `{ping_data.get('error')}`\n\n"
-    text += "Semua poster berstatus KEEP akan dikirimkan ke channel ini."
+    text = render_ping_results_text(ping_data)
 
     await callback.message.edit_text(
         text=text,
         parse_mode="Markdown",
         reply_markup=get_ping_channel_keyboard(),
     )
+
+
+@router.callback_query(F.data.startswith("chan_ping:"))
+async def handle_ping_specific_channel_callback(
+    callback: CallbackQuery,
+    publisher_service: PublisherService,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    target = callback.data.split(":")[1]
+    lbl = "Channel Utama" if target == "main" else ("Channel Sebar" if target == "poster" else f"Channel {target}")
+    await callback.answer(f"📡 Mengirim ping ke {lbl}...", show_alert=False)
+
+    ping_data = await publisher_service.ping_channel(target_channel=target, send_test_message=True)
+    text = render_ping_results_text(ping_data)
+
+    await callback.message.edit_text(
+        text=text,
+        parse_mode="Markdown",
+        reply_markup=get_ping_channel_keyboard(),
+    )
+
+
+# ------------------ DETEKSI OTOMATIS: BOT DIJADIKAN ADMIN (MY_CHAT_MEMBER) ------------------
+
+
+@router.my_chat_member()
+async def handle_bot_my_chat_member(
+    event: ChatMemberUpdated,
+    repository: Repository,
+    publisher_service: PublisherService,
+    multi_bot_service: MultiBotService,
+    notification_service: NotificationService,
+    settings: Settings,
+    bot: Bot,
+):
+    """
+    Event: Bot is added to a channel, promoted to admin, permissions changed, or removed.
+    Section E Requirement:
+    - Auto-detect bot promotion in channels.
+    - Verify administrator rights & posting permissions.
+    - Auto-enable target channel in database.
+    - Send immediate welcoming confirmation ping message into the channel!
+    - Send real-time notification to Permanent Report Channel & Admins.
+    """
+    if event.chat.type not in ("channel", "supergroup"):
+        return
+
+    old_status = event.old_chat_member.status
+    new_status = event.new_chat_member.status
+    chat_id = str(event.chat.id)
+    chat_title = event.chat.title or f"Saluran {chat_id}"
+    chat_username = f"@{event.chat.username}" if event.chat.username else None
+
+    logger.info(
+        f"Bot chat_member updated in {chat_title} ({chat_id}): {old_status} -> {new_status}"
+    )
+
+    # 1. BOT PROMOTED / ADDED AS ADMINISTRATOR OR CREATOR
+    if new_status in ("administrator", "creator"):
+        can_post = (
+            getattr(event.new_chat_member, "can_post_messages", False)
+            or new_status == "creator"
+            or getattr(event.new_chat_member, "can_post_messages", None) is not False
+        )
+
+        target_channel_key = None
+        target_label = "Saluran Siaran"
+
+        main_cid = str(settings.channel_main_id or "-1002123283346")
+        poster_cid = str(settings.channel_poster_id or "-1003512801822")
+        main_uname = str(settings.channel_username or "@ASCHENEO").lower()
+
+        if chat_id == main_cid or (chat_username and chat_username.lower() == main_uname):
+            target_channel_key = "main"
+            target_label = "Channel Utama (@ASCHENEO)"
+            await repository.set_channel_enabled("main", True)
+        elif chat_id == poster_cid:
+            target_channel_key = "poster"
+            target_label = "Channel Sebar (Poster)"
+            await repository.set_channel_enabled("poster", True)
+        else:
+            ch_cfg = await repository.get_channel_settings()
+            if ch_cfg.channel_1_id == chat_id:
+                target_channel_key = "1"
+                target_label = f"Channel 1 ({chat_title})"
+                await repository.set_channel_enabled("1", True)
+            elif ch_cfg.channel_2_id == chat_id:
+                target_channel_key = "2"
+                target_label = f"Channel 2 ({chat_title})"
+                await repository.set_channel_enabled("2", True)
+            elif not ch_cfg.channel_1_id:
+                target_channel_key = "1"
+                target_label = f"Channel 1 ({chat_title})"
+                await repository.set_channel_id("1", chat_id)
+                await repository.set_channel_enabled("1", True)
+            elif not ch_cfg.channel_2_id:
+                target_channel_key = "2"
+                target_label = f"Channel 2 ({chat_title})"
+                await repository.set_channel_id("2", chat_id)
+                await repository.set_channel_enabled("2", True)
+            else:
+                target_label = f"Channel Terdeteksi ({chat_title})"
+
+        # Synchronize bots registry
+        bot_me = await bot.get_me()
+        try:
+            await multi_bot_service.sync_all_bots()
+        except Exception:
+            pass
+
+        # Send immediate welcoming confirmation ping message into the channel
+        msg_id = None
+        if can_post:
+            try:
+                now_wib = get_current_wib()
+                time_str = now_wib.strftime("%d %B %Y, %H:%M:%S")
+                welcome_ping = (
+                    "𓄲 **ASCHEN EVENT ORGANIZER — SISTEM DIAKTIFKAN** 𓄲\n\n"
+                    "📡 **Status Saluran:** BOT BERHASIL DIJADIKAN ADMINISTRATOR ✅\n"
+                    f"➤ **Saluran:** {chat_title} (`{chat_id}`)\n"
+                    f"➤ **Bot Pengirim:** @{bot_me.username}\n"
+                    f"➤ **Izin Siaran:** {'AKTIF ✅' if can_post else 'PERIKSA IZIN ⚠️'}\n"
+                    f"➤ **Waktu:** `{time_str} WIB`\n\n"
+                    "ᵎ!ᵎ *Saluran ini otomatis terhubung, diaktifkan, dan siap menerima ping serta penyebaran poster acara.*"
+                )
+                sent_m = await bot.send_message(
+                    chat_id=event.chat.id,
+                    text=welcome_ping,
+                    parse_mode="Markdown",
+                )
+                msg_id = sent_m.message_id
+
+                from mediapatner.database.models import BroadcastHistoryRecord
+                import time
+                await repository.record_broadcast_history(
+                    BroadcastHistoryRecord(
+                        job_id=f"auto_admin:{int(time.time())}:{chat_id}",
+                        bot_name=f"@{bot_me.username}",
+                        target_channel_id=chat_id,
+                        target_channel_name=chat_title,
+                        content_type="AUTO_ADMIN_PING",
+                        content_preview=f"Auto Welcome Ping to {chat_title}",
+                        sent_at=now_wib.strftime("%Y-%m-%d %H:%M:%S"),
+                        status="SUCCESS",
+                        published_message_id=msg_id,
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Failed sending welcome ping to {chat_id}: {e}")
+
+        # Notify Admin & Permanent Report Channel
+        report_chat_id = await repository.get_report_chat_id()
+        alert_text = (
+            "𓄲 **DETEKSI OTOMATIS: BOT DI-ADMINKAN DI CHANNEL** 𓄲\n\n"
+            f"➤ **Saluran:** *{chat_title}* (`{chat_id}`)\n"
+            f"➤ **Kategori:** *{target_label}*\n"
+            f"➤ **Bot:** @{bot_me.username}\n"
+            f"➤ **Hak Administrator:** `YA ✅`\n"
+            f"➤ **Izin Posting Pesan:** `{'AKTIF ✅' if can_post else 'NONAKTIF ❌'}`\n"
+            f"➤ **Status Saluran:** `OTOMATIS DIAKTIFKAN (ON) ✅`\n"
+            f"➤ **Pesan Ping Konfirmasi:** `{'TERKIRIM KE CHANNEL (ID: #' + str(msg_id) + ') ✅' if msg_id else 'TIDAK TERKIRIM ⚠️'}`\n\n"
+            "✨ *Saluran ini sekarang otomatis siap melakukan ping dan menyebarkan poster.*"
+        )
+        if report_chat_id:
+            try:
+                await bot.send_message(chat_id=report_chat_id, text=alert_text, parse_mode="Markdown")
+            except Exception:
+                pass
+        for aid in settings.admin_ids:
+            try:
+                await bot.send_message(chat_id=aid, text=alert_text, parse_mode="Markdown")
+            except Exception:
+                pass
+
+    # 2. BOT REMOVED / DEMOTED FROM ADMINISTRATOR
+    elif new_status in ("left", "kicked", "restricted"):
+        main_cid = str(settings.channel_main_id or "-1002123283346")
+        poster_cid = str(settings.channel_poster_id or "-1003512801822")
+
+        disabled_key = None
+        if chat_id == main_cid:
+            await repository.set_channel_enabled("main", False)
+            disabled_key = "Channel Utama"
+        elif chat_id == poster_cid:
+            await repository.set_channel_enabled("poster", False)
+            disabled_key = "Channel Sebar (Poster)"
+        else:
+            ch_cfg = await repository.get_channel_settings()
+            if ch_cfg.channel_1_id == chat_id:
+                await repository.set_channel_enabled("1", False)
+                disabled_key = "Channel 1"
+            elif ch_cfg.channel_2_id == chat_id:
+                await repository.set_channel_enabled("2", False)
+                disabled_key = "Channel 2"
+
+        bot_me = await bot.get_me()
+        report_chat_id = await repository.get_report_chat_id()
+        demote_text = (
+            "⚠️ **PERINGATAN: BOT KEHILANGAN AKSES ADMINISTRATOR** ⚠️\n\n"
+            f"➤ **Saluran:** *{chat_title}* (`{chat_id}`)\n"
+            f"➤ **Status Baru:** `{new_status}`\n"
+            f"➤ **Bot:** @{bot_me.username}\n"
+        )
+        if disabled_key:
+            demote_text += f"➤ **Tindakan Otomatis:** Status `{disabled_key}` diubah menjadi `NONAKTIF (OFF) 🔴`.\n\n"
+        demote_text += "ᵎ!ᵎ *Penyebaran ke saluran ini dihentikan hingga hak administrator diberikan kembali.*"
+
+        if report_chat_id:
+            try:
+                await bot.send_message(chat_id=report_chat_id, text=demote_text, parse_mode="Markdown")
+            except Exception:
+                pass
+        for aid in settings.admin_ids:
+            try:
+                await bot.send_message(chat_id=aid, text=demote_text, parse_mode="Markdown")
+            except Exception:
+                pass
 
 
 # ------------------ POSTER DETAIL & ACTIONS ------------------

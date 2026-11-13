@@ -168,6 +168,10 @@ class MultiBotService:
                 perm_dict["channel_poster"] = {"ok": ok, "label": lbl, "details": det}
                 if ok:
                     is_overall_verified = True
+                    try:
+                        await self.repository.set_channel_enabled("poster", True)
+                    except Exception:
+                        pass
 
             # 2. Test Channel Utama
             if channels.main_id:
@@ -175,6 +179,10 @@ class MultiBotService:
                 perm_dict["channel_main"] = {"ok": ok, "label": lbl, "details": det}
                 if ok:
                     is_overall_verified = True
+                    try:
+                        await self.repository.set_channel_enabled("main", True)
+                    except Exception:
+                        pass
 
             # 3. Test Channel 1 (if set)
             if channels.channel_1_id:
@@ -182,6 +190,10 @@ class MultiBotService:
                 perm_dict["channel_1"] = {"ok": ok, "label": lbl, "details": det}
                 if ok:
                     is_overall_verified = True
+                    try:
+                        await self.repository.set_channel_enabled("1", True)
+                    except Exception:
+                        pass
 
             # 4. Test Channel 2 (if set)
             if channels.channel_2_id:
@@ -189,6 +201,10 @@ class MultiBotService:
                 perm_dict["channel_2"] = {"ok": ok, "label": lbl, "details": det}
                 if ok:
                     is_overall_verified = True
+                    try:
+                        await self.repository.set_channel_enabled("2", True)
+                    except Exception:
+                        pass
 
             status_str = "VERIFIED_OK" if is_overall_verified else "NEEDS_ADMIN_RIGHTS"
 

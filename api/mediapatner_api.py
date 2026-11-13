@@ -133,31 +133,131 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
         import time
         import urllib.request
         token = settings.get_token_plain()
-        main_channel = settings.channel_username
-        start_t = time.perf_counter()
-        try:
-            url = f"https://api.telegram.org/bot{token}/getChat?chat_id={urllib.parse.quote(main_channel)}"
-            with urllib.request.urlopen(url, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
-            chat_info = data.get("result", {})
-            return {
-                "success": True,
-                "channel": main_channel,
-                "chat_title": chat_info.get("title", main_channel),
-                "chat_type": chat_info.get("type", "channel"),
-                "latency_ms": elapsed_ms,
-                "health_status": "SEHAT & SIAP PUBLIKASI ✅",
-            }
-        except Exception as e:
-            elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
-            return {
-                "success": False,
-                "channel": main_channel,
-                "latency_ms": elapsed_ms,
-                "error": str(e),
-                "health_status": "TERPUTUS / GAGAL ❌",
-            }
+        target = query_params.get("target", ["all"])[0]
+
+        channels = await repo.get_channel_settings()
+        targets = [
+            ("main", channels.main_id or "-1002123283346", "Channel Utama (@ASCHENEO)"),
+            ("poster", channels.poster_id or "-1003512801822", "Channel Sebar (Poster)"),
+        ]
+        if channels.channel_1_id:
+            targets.append(("1", channels.channel_1_id, "Channel 1"))
+        if channels.channel_2_id:
+            targets.append(("2", channels.channel_2_id, "Channel 2"))
+
+        results = {}
+        for key, cid, label in targets:
+            if target not in ("all", "*", key):
+                continue
+            start_t = time.perf_counter()
+            try:
+                # 1. getChat
+                url = f"https://api.telegram.org/bot{token}/getChat?chat_id={urllib.parse.quote(str(cid))}"
+                with urllib.request.urlopen(url, timeout=10) as resp:
+                    chat_data = json.loads(resp.read().decode("utf-8")).get("result", {})
+                chat_title = chat_data.get("title", label)
+
+                # 2. getChatMember
+                me_url = f"https://api.telegram.org/bot{token}/getMe"
+                with urllib.request.urlopen(me_url, timeout=10) as resp:
+                    bot_info = json.loads(resp.read().decode("utf-8")).get("result", {})
+                bot_id = bot_info.get("id")
+
+                mem_url = f"https://api.telegram.org/bot{token}/getChatMember?chat_id={urllib.parse.quote(str(cid))}&user_id={bot_id}"
+                with urllib.request.urlopen(mem_url, timeout=10) as resp:
+                    mem_data = json.loads(resp.read().decode("utf-8")).get("result", {})
+
+                is_admin = mem_data.get("status") in ("administrator", "creator")
+                can_post = (
+                    mem_data.get("can_post_messages", False)
+                    or mem_data.get("status") == "creator"
+                    or (is_admin and mem_data.get("can_post_messages") is not False)
+                )
+                elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
+
+                msg_sent = False
+                msg_id = None
+                if is_admin and can_post:
+                    # Auto-enable channel in database
+                    if key in ("main", "poster", "1", "2"):
+                        try:
+                            await repo.set_channel_enabled(key, True)
+                        except Exception:
+                            pass
+
+                    # Send real ping message
+                    now_str = datetime.now().strftime("%d %B %Y, %H:%M:%S")
+                    ping_msg = (
+                        "𓄲 **ASCHEN BROADCAST 𓈒 PING TEST** 𓄲\n\n"
+                        "📡 **Status Saluran:** AKTIF & TERHUBUNG ✅\n"
+                        f"➤ **Saluran:** {chat_title} (`{cid}`)\n"
+                        f"➤ **Bot Pengirim:** @{bot_info.get('username')}\n"
+                        f"➤ **Waktu Ping:** `{now_str} WIB`\n"
+                        f"➤ **Latency:** `{elapsed_ms} ms` ⚡\n"
+                        "➤ **Hak Admin:** `YA ✅` | **Izin Posting:** `AKTIF ✅`\n\n"
+                        "ᵎ!ᵎ *Saluran ini terverifikasi dan siap menerima penyebaran poster acara.*"
+                    )
+                    send_payload = json.dumps({
+                        "chat_id": str(cid),
+                        "text": ping_msg,
+                        "parse_mode": "Markdown",
+                    }).encode("utf-8")
+                    req = urllib.request.Request(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        data=send_payload,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as s_resp:
+                        s_data = json.loads(s_resp.read().decode("utf-8"))
+                        msg_sent = s_data.get("ok", False)
+                        msg_id = s_data.get("result", {}).get("message_id")
+
+                    from mediapatner.database.models import BroadcastHistoryRecord
+                    await repo.record_broadcast_history(
+                        BroadcastHistoryRecord(
+                            job_id=f"api_ping:{int(time.time())}:{cid}",
+                            bot_name=f"@{bot_info.get('username')}",
+                            target_channel_id=str(cid),
+                            target_channel_name=chat_title,
+                            content_type="PING_TEST",
+                            content_preview=f"API Ping Test to {chat_title}",
+                            sent_at=now_str,
+                            status="SUCCESS" if msg_sent else "FAILED",
+                            published_message_id=msg_id,
+                        )
+                    )
+
+                results[key] = {
+                    "success": True if (is_admin and can_post) else False,
+                    "channel": str(cid),
+                    "chat_title": chat_title,
+                    "is_admin": is_admin,
+                    "can_post": can_post,
+                    "latency_ms": elapsed_ms,
+                    "message_sent": msg_sent,
+                    "message_id": msg_id,
+                    "health_status": "SEHAT & PESAN TERKIRIM ✅" if msg_sent else "PERIKSA IZIN ADMIN ❌",
+                }
+            except Exception as e:
+                elapsed_ms = round((time.perf_counter() - start_t) * 1000, 2)
+                results[key] = {
+                    "success": False,
+                    "channel": str(cid),
+                    "chat_title": label,
+                    "latency_ms": elapsed_ms,
+                    "message_sent": False,
+                    "message_id": None,
+                    "error": str(e),
+                    "health_status": "TERPUTUS / BELUM DI-ADMINKAN ❌",
+                }
+
+        main_res = results.get("main", {})
+        return {
+            "success": any(r.get("success") for r in results.values()),
+            "channel": main_res.get("channel", settings.channel_username),
+            "channels": results,
+            "health_status": "SEMUA SALURAN SEHAT & TERKIRIM ✅" if all(r.get("success") for r in results.values()) else "SEBAGIAN SALURAN AKTIF ⚠️",
+        }
 
     elif action == "channel_control":
         channels = await repo.get_channel_settings()

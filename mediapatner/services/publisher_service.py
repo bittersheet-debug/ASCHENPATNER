@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 from mediapatner.config import Settings
 from mediapatner.database.repository import Repository
-from mediapatner.database.models import PosterRecord
+from mediapatner.database.models import PosterRecord, BroadcastHistoryRecord
 from mediapatner.services.notification_service import NotificationService
 from mediapatner.services.scheduler_service import format_indonesian_date, format_indonesian_time, get_current_wib
 
@@ -272,23 +272,30 @@ class PublisherService:
 
             return False
 
-    async def ping_channel(self) -> Dict[str, Any]:
+    async def ping_single_channel(
+        self,
+        channel_key: str,
+        channel_id: str,
+        channel_name: str,
+        send_test_message: bool = True,
+    ) -> Dict[str, Any]:
         """
-        Pings the main broadcast channel (@ASCHENEO).
-        Checks bot membership, administrator status, posting rights,
-        and round-trip latency to Telegram API.
+        Probes a specific channel, verifies bot administrator and posting permissions,
+        and sends an actual ping test message directly into the channel.
+        Auto-activates the channel in database if permissions are valid.
         """
-        main_channel = self.settings.channel_username
         start_time = time.perf_counter()
+        now_wib = get_current_wib()
+        time_str = now_wib.strftime("%d %B %Y, %H:%M:%S")
 
         try:
+            bot_me = await self.bot.get_me()
             # 1. Probe chat info
-            chat = await self.bot.get_chat(main_channel)
-            chat_title = chat.title or main_channel
+            chat = await self.bot.get_chat(channel_id)
+            chat_title = chat.title or channel_name or str(channel_id)
 
             # 2. Probe bot permissions
-            bot_me = await self.bot.get_me()
-            member = await self.bot.get_chat_member(main_channel, bot_me.id)
+            member = await self.bot.get_chat_member(channel_id, bot_me.id)
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
             is_admin = member.status in ("administrator", "creator")
@@ -302,31 +309,205 @@ class PublisherService:
                 or member.status == "creator"
             )
 
-            status_str = "SEHAT & SIAP PUBLIKASI ✅" if (is_admin and can_post) else "PERHATIAN: CEK IZIN BOT ⚠️"
+            msg_id = None
+            msg_sent = False
 
-            return {
-                "success": True,
-                "channel": main_channel,
-                "chat_title": chat_title,
-                "bot_id": bot_me.id,
-                "bot_username": f"@{bot_me.username}",
-                "member_status": member.status,
-                "is_admin": is_admin,
-                "can_post": can_post,
-                "can_edit": can_edit,
-                "latency_ms": elapsed_ms,
-                "health_status": status_str,
-            }
+            if is_admin and can_post:
+                # Auto-enable channel in settings if bot is authorized
+                if channel_key in ("main", "poster", "1", "2"):
+                    try:
+                        await self.repository.set_channel_enabled(channel_key, True)
+                    except Exception:
+                        pass
+
+                # Send actual ping test message into the channel
+                if send_test_message:
+                    try:
+                        ping_text = (
+                            "𓄲 **ASCHEN BROADCAST 𓈒 PING TEST** 𓄲\n\n"
+                            "📡 **Status Saluran:** AKTIF & TERHUBUNG ✅\n"
+                            f"➤ **Saluran:** {chat_title} (`{channel_id}`)\n"
+                            f"➤ **Bot Pengirim:** @{bot_me.username}\n"
+                            f"➤ **Waktu Ping:** `{time_str} WIB`\n"
+                            f"➤ **Latency:** `{elapsed_ms} ms` ⚡\n"
+                            f"➤ **Hak Admin:** `YA ✅` | **Izin Posting:** `AKTIF ✅`\n\n"
+                            "ᵎ!ᵎ *Saluran ini terverifikasi dan siap menerima penyebaran poster acara.*"
+                        )
+                        sent_msg = await self.bot.send_message(
+                            chat_id=channel_id,
+                            text=ping_text,
+                            parse_mode="Markdown"
+                        )
+                        msg_id = sent_msg.message_id
+                        msg_sent = True
+
+                        # Record in broadcast history
+                        await self.repository.record_broadcast_history(
+                            BroadcastHistoryRecord(
+                                job_id=f"ping:{int(time.time())}:{channel_id}",
+                                bot_name=f"@{bot_me.username}",
+                                target_channel_id=str(channel_id),
+                                target_channel_name=chat_title,
+                                content_type="PING_TEST",
+                                content_preview=f"Broadcast Ping Test to {chat_title}",
+                                sent_at=now_wib.strftime("%Y-%m-%d %H:%M:%S"),
+                                status="SUCCESS",
+                                published_message_id=msg_id,
+                            )
+                        )
+                    except Exception as e_send:
+                        logger.error(f"Failed sending ping message to {channel_id}: {e_send}")
+                        return {
+                            "success": False,
+                            "channel_key": channel_key,
+                            "channel": str(channel_id),
+                            "chat_title": chat_title,
+                            "bot_id": bot_me.id,
+                            "bot_username": f"@{bot_me.username}",
+                            "member_status": member.status,
+                            "is_admin": is_admin,
+                            "can_post": can_post,
+                            "can_edit": can_edit,
+                            "latency_ms": elapsed_ms,
+                            "message_sent": False,
+                            "message_id": None,
+                            "error": f"Izin admin ada namun gagal mengirim pesan: {e_send}",
+                            "health_status": "GAGAL KIRIM PESAN ⚠️",
+                        }
+
+                status_str = "SEHAT & PESAN TERKIRIM ✅" if msg_sent else "SEHAT & SIAP PUBLIKASI ✅"
+                return {
+                    "success": True,
+                    "channel_key": channel_key,
+                    "channel": str(channel_id),
+                    "chat_title": chat_title,
+                    "bot_id": bot_me.id,
+                    "bot_username": f"@{bot_me.username}",
+                    "member_status": member.status,
+                    "is_admin": is_admin,
+                    "can_post": can_post,
+                    "can_edit": can_edit,
+                    "latency_ms": elapsed_ms,
+                    "message_sent": msg_sent,
+                    "message_id": msg_id,
+                    "health_status": status_str,
+                    "error": None,
+                }
+            else:
+                err_note = "Bot belum menjadi administrator atau tidak memiliki izin kirim pesan."
+                return {
+                    "success": False,
+                    "channel_key": channel_key,
+                    "channel": str(channel_id),
+                    "chat_title": chat_title,
+                    "bot_id": bot_me.id,
+                    "bot_username": f"@{bot_me.username}",
+                    "member_status": member.status,
+                    "is_admin": is_admin,
+                    "can_post": can_post,
+                    "can_edit": can_edit,
+                    "latency_ms": elapsed_ms,
+                    "message_sent": False,
+                    "message_id": None,
+                    "error": err_note,
+                    "health_status": "PERIKSA IZIN ADMIN ❌",
+                }
+
         except Exception as e:
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
-            logger.error(f"Ping to broadcast channel {main_channel} failed: {e}")
+            logger.error(f"Ping to channel {channel_id} ({channel_key}) failed: {e}")
             return {
                 "success": False,
-                "channel": main_channel,
+                "channel_key": channel_key,
+                "channel": str(channel_id),
+                "chat_title": channel_name or str(channel_id),
                 "latency_ms": elapsed_ms,
+                "message_sent": False,
+                "message_id": None,
                 "error": str(e),
-                "health_status": "TERPUTUS / GAGAL ❌",
+                "health_status": "TERPUTUS / BELUM DI-ADMINKAN ❌",
             }
+
+    async def ping_all_channels(self, send_test_message: bool = True) -> Dict[str, Any]:
+        """
+        Pings all configured channels:
+        - Channel Utama (-1002123283346)
+        - Channel Sebar/Poster (-1003512801822)
+        - Channel 1 (if set)
+        - Channel 2 (if set)
+        Sends real ping messages into each channel and returns consolidated diagnostic report.
+        """
+        ch_settings = await self.repository.get_channel_settings()
+
+        targets = [
+            ("main", self.settings.channel_main_id or "-1002123283346", "Channel Utama (@ASCHENEO)"),
+            ("poster", self.settings.channel_poster_id or "-1003512801822", "Channel Sebar (Poster)"),
+        ]
+        if ch_settings.channel_1_id:
+            targets.append(("1", ch_settings.channel_1_id, "Channel 1"))
+        if ch_settings.channel_2_id:
+            targets.append(("2", ch_settings.channel_2_id, "Channel 2"))
+
+        results = {}
+        all_success = True
+        any_success = False
+
+        for key, cid, label in targets:
+            res = await self.ping_single_channel(key, cid, label, send_test_message=send_test_message)
+            results[key] = res
+            if res.get("success"):
+                any_success = True
+            else:
+                all_success = False
+
+        # Main channel result for backward compatibility
+        main_res = results.get("main", {})
+
+        return {
+            "success": any_success,
+            "all_success": all_success,
+            "channel": main_res.get("channel", self.settings.channel_username),
+            "chat_title": main_res.get("chat_title", "-"),
+            "latency_ms": main_res.get("latency_ms", 0),
+            "health_status": "SEMUA SALURAN SEHAT & TERKIRIM ✅" if all_success else ("SEBAGIAN SALURAN AKTIF ⚠️" if any_success else "SEMUA SALURAN GAGAL ❌"),
+            "channels": results,
+            "sent_messages": [r["message_id"] for r in results.values() if r.get("message_id")],
+        }
+
+    async def ping_channel(
+        self, target_channel: Optional[str] = None, send_test_message: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Unified ping entrypoint.
+        If target_channel is provided ('main', 'poster', '1', '2', or specific chat id), pings that specific channel.
+        Otherwise pings all channels and returns consolidated results.
+        """
+        if target_channel and target_channel not in ("all", "*"):
+            ch_settings = await self.repository.get_channel_settings()
+            if target_channel == "main":
+                cid = self.settings.channel_main_id or "-1002123283346"
+                label = "Channel Utama (@ASCHENEO)"
+            elif target_channel == "poster":
+                cid = self.settings.channel_poster_id or "-1003512801822"
+                label = "Channel Sebar (Poster)"
+            elif target_channel == "1":
+                cid = ch_settings.channel_1_id
+                label = "Channel 1"
+            elif target_channel == "2":
+                cid = ch_settings.channel_2_id
+                label = "Channel 2"
+            else:
+                cid = target_channel
+                label = f"Channel ({target_channel})"
+
+            res = await self.ping_single_channel(target_channel, cid, label, send_test_message=send_test_message)
+            return {
+                **res,
+                "channels": {target_channel: res},
+                "sent_messages": [res["message_id"]] if res.get("message_id") else [],
+            }
+
+        return await self.ping_all_channels(send_test_message=send_test_message)
 
     async def publish_poster_early(
         self, poster: PosterRecord, admin_name: str, admin_id: int
