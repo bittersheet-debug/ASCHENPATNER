@@ -5,6 +5,7 @@ Database repository for users, posters, activity logs, settings, and statistics.
 from typing import List, Optional, Tuple, Dict, Any
 import aiosqlite
 import logging
+import json
 from datetime import datetime
 from mediapatner.database.db import Database
 from mediapatner.database.models import (
@@ -722,6 +723,7 @@ class Repository:
         ch1_en = (await self.get_setting("channel_1_enabled", "false")).lower() in ("true", "1", "yes", "on")
         ch2_id = await self.get_setting("channel_2_id", "")
         ch2_en = (await self.get_setting("channel_2_enabled", "false")).lower() in ("true", "1", "yes", "on")
+        target_mode = await self.get_setting("auto_publish_target", "both")
         return ChannelSettings(
             main_id=main_id,
             main_enabled=main_en,
@@ -731,6 +733,7 @@ class Repository:
             channel_1_enabled=ch1_en,
             channel_2_id=ch2_id,
             channel_2_enabled=ch2_en,
+            auto_publish_target=target_mode,
         )
 
     async def set_channel_enabled(self, channel_key: str, enabled: bool) -> None:
@@ -740,6 +743,28 @@ class Repository:
     async def set_channel_id(self, channel_key: str, channel_id: str) -> None:
         key = f"channel_{channel_key}_id"
         await self.set_setting(key, str(channel_id).strip())
+
+    async def get_auto_publish_target(self) -> str:
+        return await self.get_setting("auto_publish_target", "both")
+
+    async def set_auto_publish_target(self, target: str) -> None:
+        await self.set_setting("auto_publish_target", str(target).strip().lower())
+
+    async def set_poster_target(self, poster_id: int, target: str) -> bool:
+        """Stores specific target destination ('main', 'poster', 'both', 'all') in poster raw_data."""
+        poster = await self.get_poster(poster_id)
+        if not poster:
+            return False
+        raw = poster.get_parsed_raw()
+        raw["target_destination"] = target.strip().lower()
+        new_raw_str = json.dumps(raw)
+        async with self.db.connection() as conn:
+            cursor = await conn.execute(
+                "UPDATE posters SET raw_data = ?, updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (new_raw_str, poster_id),
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
 
     # ------------------ MULTI-BOT MANAGEMENT ------------------
     async def upsert_broadcast_bot(self, bot: BroadcastBotRecord) -> int:

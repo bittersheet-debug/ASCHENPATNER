@@ -35,14 +35,20 @@ class PublisherService:
         self.notification_service = notification_service
         self.multi_bot_service = multi_bot_service
 
-    async def publish_poster(self, poster: PosterRecord) -> bool:
+    async def publish_poster(
+        self,
+        poster: PosterRecord,
+        target_destination: Optional[str] = None,
+    ) -> bool:
         """
         Publishes a poster.
-        If multi_bot_service is configured, routes via Section D:
-        Directed exclusively to Channel Poster (-1003512801822) with multi-bot failover and queue.
+        If multi_bot_service is configured, routes via Section D & Target Selection:
+        Distributes to chosen channels (Channel Utama, Channel Sebar, Keduanya, atau Semua Saluran).
         """
         if self.multi_bot_service:
-            success, published_msg_id, message = await self.multi_bot_service.dispatch_poster_publication(poster)
+            success, published_msg_id, message = await self.multi_bot_service.dispatch_poster_publication(
+                poster, target_destination=target_destination
+            )
             now_wib = get_current_wib()
             current_date_str = format_indonesian_date(now_wib)
             current_time_str = format_indonesian_time(now_wib)
@@ -53,7 +59,7 @@ class PublisherService:
                     action="PUBLISHED",
                     poster_id=poster.id,
                     user_id=poster.sender_id,
-                    details=f"Published to Channel Poster (-1003512801822) as msg_id {published_msg_id}",
+                    details=message,
                 )
                 await self.notification_service.send_post_success_to_user(poster.sender_id)
                 await self.notification_service.send_channel_post_success_report(
@@ -63,9 +69,8 @@ class PublisherService:
                 )
                 return True
             else:
-                channels = await self.repository.get_channel_settings()
-                if not channels.poster_enabled:
-                    logger.info(f"Poster #{poster.id} halted because Channel Poster is OFF.")
+                if "NONAKTIF (OFF)" in message or "blocked" in message:
+                    logger.info(f"Poster #{poster.id} halted: {message}")
                     return False
 
                 err_msg = message

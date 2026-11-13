@@ -209,6 +209,7 @@ class Database:
                 ("channel_1_enabled", "false"),
                 ("channel_2_id", ""),
                 ("channel_2_enabled", "false"),
+                ("auto_publish_target", "both"),
             ]
             for key, val in defaults:
                 await db.execute(

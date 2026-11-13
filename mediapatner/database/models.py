@@ -191,4 +191,5 @@ class ChannelSettings:
     channel_1_enabled: bool = False
     channel_2_id: str = ""
     channel_2_enabled: bool = False
+    auto_publish_target: str = "both"  # 'main', 'poster', 'both', 'all'
 

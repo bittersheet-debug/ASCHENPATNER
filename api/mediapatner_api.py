@@ -174,6 +174,7 @@ async def handle_get_request(action: str, query_params: dict) -> dict:
                 "channel_1_enabled": channels.channel_1_enabled,
                 "channel_2_id": channels.channel_2_id,
                 "channel_2_enabled": channels.channel_2_enabled,
+                "auto_publish_target": channels.auto_publish_target,
             },
             "bots": [
                 {
@@ -289,6 +290,7 @@ async def handle_post_request(body_data: dict) -> dict:
 
     elif action == "publish_now":
         poster_id = body_data.get("poster_id")
+        target = body_data.get("target")  # Optional: 'main', 'poster', 'both', 'all'
         if not poster_id:
             return {"success": False, "error": "poster_id wajib disertakan."}
 
@@ -303,8 +305,16 @@ async def handle_post_request(body_data: dict) -> dict:
         app = MediaPatnerApplication(settings)
         await app.db.init()
         await app.repository.mark_publishing(poster.id)
-        pub_ok = await app.publisher_service.publish_poster(poster)
+        pub_ok = await app.publisher_service.publish_poster(poster, target_destination=target)
         await app.bot.session.close()
+
+        target_name_map = {
+            "main": "Channel Utama (-1002123283346)",
+            "poster": "Channel Sebar (-1003512801822)",
+            "both": "Channel Utama & Channel Sebar",
+            "all": "Semua Saluran Aktif",
+        }
+        dest_display = target_name_map.get(target, "saluran target terpilih")
 
         if pub_ok:
             report = await repo.get_poster_report_by_poster_id(poster.id)
@@ -314,7 +324,7 @@ async def handle_post_request(body_data: dict) -> dict:
                     status="🚀 Selesai (Sebar Duluan)",
                     processed_by_id=0,
                     processed_by_name="Web Admin",
-                    action_note="Sebar duluan via Web Dashboard",
+                    action_note=f"Sebar duluan ke {dest_display} via Web Dashboard",
                 )
 
             if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
@@ -325,13 +335,31 @@ async def handle_post_request(body_data: dict) -> dict:
 
             return {
                 "success": True,
-                "message": f"Poster #{poster_id} berhasil disebar duluan ke channel {settings.channel_username}!",
+                "message": f"Poster #{poster_id} berhasil disebar ke {dest_display}!",
             }
         else:
             return {
                 "success": False,
-                "error": f"Gagal menyebarkan poster #{poster_id}. Silakan periksa izin bot di channel {settings.channel_username}.",
+                "error": f"Gagal menyebarkan poster #{poster_id} ke {dest_display}. Pastikan channel berstatus ON dan bot memiliki izin.",
             }
+
+    elif action == "set_auto_publish_target":
+        target = str(body_data.get("target", "both")).strip().lower()
+        if target not in ("main", "poster", "both", "all"):
+            return {"success": False, "error": "Target tidak valid. Pilihan: 'main', 'poster', 'both', 'all'."}
+
+        await repo.set_auto_publish_target(target)
+        if os.getenv("VERCEL") or os.getenv("NOW_REGION"):
+            try:
+                save_to_blob(db.db_path)
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "message": f"Target sebar otomatis global berhasil diubah menjadi: {target.upper()}",
+            "auto_publish_target": target,
+        }
 
     elif action == "toggle_channel":
         channel_key = body_data.get("channel_key")  # 'ch1', 'ch2', 'poster'

@@ -241,22 +241,60 @@ class MultiBotService:
 
         return None, "NO_AUTHORIZED_BOT", "Tidak ada bot yang diotorisasi untuk tugas ini"
 
-    # ------------------ POSTER DISPATCH (SECTION D) ------------------
-    async def dispatch_poster_publication(self, poster: PosterRecord) -> Tuple[bool, Optional[int], str]:
+    # ------------------ POSTER DISPATCH (SECTION D & TARGET SELECTION) ------------------
+    async def dispatch_poster_publication(
+        self,
+        poster: PosterRecord,
+        target_destination: Optional[str] = None,
+    ) -> Tuple[bool, Optional[int], str]:
         """
-        Section D: Directed exclusively to Channel Poster ("-1003512801822").
-        Enforces:
-        - Must be sent only to Channel Poster, never automatically to Channel 1 or 2.
-        - Checks if Channel Poster is ON. If OFF, stops delivery immediately.
-        - Prevents duplicate sending using idempotency key: poster:{id}:-1003512801822.
-        - Uses Bot Poster, with automatic failover to Bot Cadangan on error.
-        - Records complete dispatch history in broadcast_history.
+        Distributes poster to chosen destinations (Channel Utama, Channel Sebar, Keduanya, atau Semua Saluran).
+        Target destination priority:
+        1. Explicit parameter `target_destination` (e.g. from admin 'Sebar Duluan' action)
+        2. Per-poster preference stored in `poster.get_parsed_raw().get('target_destination')`
+        3. Global automatic setting `auto_publish_target` (default: 'both')
         """
         channels = await self.repository.get_channel_settings()
 
-        # D.6 / D.7: If Channel Poster is OFF, immediately halt all poster publishing
-        if not channels.poster_enabled:
-            reason = "Channel Poster sedang NONAKTIF (OFF). Seluruh pengiriman poster dihentikan."
+        dest = (target_destination or "").strip().lower()
+        if not dest:
+            dest = poster.get_parsed_raw().get("target_destination", "")
+        if not dest:
+            dest = await self.repository.get_auto_publish_target()
+
+        # Build list of active target channels according to destination
+        targets: List[Tuple[str, str, str]] = []  # (label, channel_id, assigned_role)
+
+        # 1. Channel Sebar / Poster
+        if dest in ("poster", "both", "all"):
+            if channels.poster_enabled and channels.poster_id:
+                targets.append(("Channel Sebar", channels.poster_id, "poster"))
+            else:
+                logger.warning("Channel Sebar is OFF or unconfigured.")
+
+        # 2. Channel Utama
+        if dest in ("main", "both", "all"):
+            if channels.main_enabled and channels.main_id:
+                targets.append(("Channel Utama", channels.main_id, "poster"))
+            else:
+                logger.warning("Channel Utama is OFF or unconfigured.")
+
+        # 3. Channel 1 & 2 (if 'all' requested)
+        if dest == "all":
+            if channels.channel_1_enabled and channels.channel_1_id:
+                targets.append(("Channel 1", channels.channel_1_id, "channel_1"))
+            if channels.channel_2_enabled and channels.channel_2_id:
+                targets.append(("Channel 2", channels.channel_2_id, "channel_2"))
+
+        if not targets:
+            dest_label_map = {
+                "poster": "Channel Sebar (Poster)",
+                "main": "Channel Utama",
+                "both": "Channel Utama & Channel Sebar",
+                "all": "Semua Saluran",
+            }
+            lbl = dest_label_map.get(dest, dest)
+            reason = f"Saluran tujuan ({lbl}) sedang NONAKTIF (OFF) atau belum dikonfigurasi. Pengiriman dihentikan."
             logger.warning(f"Poster #{poster.id} blocked: {reason}")
             await self.repository.log_activity(
                 action="POSTER_BLOCKED",
@@ -266,183 +304,168 @@ class MultiBotService:
             )
             return False, None, reason
 
-        poster_channel_id = channels.poster_id or "-1003512801822"
-        idempotency_key = f"poster:{poster.id}:{poster_channel_id}"
-        job_id = f"JOB-POSTER-{poster.id}-{uuid.uuid4().hex[:6].upper()}"
+        successful_targets = []
+        failed_targets = []
+        first_published_id = None
+        last_error = None
 
-        # Enqueue with atomic duplicate prevention
-        queue_job = BroadcastQueueRecord(
-            id=None,
-            job_id=job_id,
-            idempotency_key=idempotency_key,
-            job_type="poster",
-            payload_id=poster.id,
-            target_channel_id=poster_channel_id,
-            target_channel_name="Channel Poster",
-            assigned_bot_id=None,
-            assigned_role="poster",
-            status="PENDING",
-            retry_count=0,
-            max_retries=3,
-        )
-        await self.repository.enqueue_broadcast_job(queue_job)
-
-        # Atomic lock
-        worker_id = f"worker-{uuid.uuid4().hex[:4]}"
-        locked = await self.repository.lock_broadcast_job(job_id, worker_id)
-        if not locked:
-            # Another worker already locked or processed this job
-            return False, None, "Pekerjaan poster ini sudah diproses atau sedang berjalan (Lock aktif)."
-
-        # Resolve Bot Poster (with failover)
-        bot, bot_name, failover_note = await self.resolve_bot_for_target("poster", poster_channel_id)
-        if not bot:
-            err = "Tidak ada Bot Poster atau Bot Cadangan yang diotorisasi."
-            await self.repository.mark_broadcast_job_failed(job_id, err)
-            await self.repository.record_broadcast_history(
-                BroadcastHistoryRecord(
-                    id=None,
-                    job_id=job_id,
-                    bot_name="None",
-                    target_channel_id=poster_channel_id,
-                    target_channel_name="Channel Poster",
-                    content_type="Poster",
-                    content_preview=f"Poster #{poster.id} by {poster.sender_name}",
-                    sent_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    status="FAILED",
-                    error_message=err,
-                    retry_count=1,
-                )
-            )
-            return False, None, err
-
-        # Execute publication to Channel Poster
         raw_data = poster.get_parsed_raw()
         direct_chat_id = raw_data.get("direct_chat_id")
         direct_message_id = raw_data.get("direct_message_id")
-        published_msg_id: Optional[int] = None
-        send_error: Optional[Exception] = None
 
-        # Method 1: Copy message (preserves exact original media and text)
-        if direct_chat_id and direct_message_id:
-            try:
-                sent = await bot.copy_message(
-                    chat_id=poster_channel_id,
-                    from_chat_id=direct_chat_id,
-                    message_id=direct_message_id,
-                )
-                published_msg_id = sent.message_id
-            except Exception as e:
-                logger.warning(f"Copy message to Channel Poster failed: {e}")
-                send_error = e
+        for target_name, target_cid, target_role in targets:
+            job_id = f"JOB-POSTER-{poster.id}-{target_role[:4].upper()}-{uuid.uuid4().hex[:4].upper()}"
+            idempotency_key = f"poster:{poster.id}:{target_cid}"
 
-        # Method 2: Direct media send
-        if published_msg_id is None:
-            try:
-                caption = poster.caption or None
-                photo_url = raw_data.get("photo_url")
-                video_url = raw_data.get("video_url")
+            # Enqueue with atomic duplicate prevention
+            queue_job = BroadcastQueueRecord(
+                id=None,
+                job_id=job_id,
+                idempotency_key=idempotency_key,
+                job_type="poster",
+                payload_id=poster.id,
+                target_channel_id=target_cid,
+                target_channel_name=target_name,
+                assigned_bot_id=None,
+                assigned_role=target_role,
+                status="PENDING",
+                retry_count=0,
+                max_retries=3,
+            )
+            await self.repository.enqueue_broadcast_job(queue_job)
 
-                if poster.media_type == "photo" or photo_url:
-                    photo_src = poster.file_id or (URLInputFile(photo_url) if photo_url else None)
-                    if photo_src:
-                        sent = await bot.send_photo(
-                            chat_id=poster_channel_id,
-                            photo=photo_src,
-                            caption=caption,
-                        )
-                        published_msg_id = sent.message_id
-                elif poster.media_type == "video" or video_url:
-                    video_src = poster.file_id or (URLInputFile(video_url) if video_url else None)
-                    if video_src:
-                        sent = await bot.send_video(
-                            chat_id=poster_channel_id,
-                            video=video_src,
-                            caption=caption,
-                        )
-                        published_msg_id = sent.message_id
-                elif poster.media_type == "document" and poster.file_id:
-                    sent = await bot.send_document(
-                        chat_id=poster_channel_id,
-                        document=poster.file_id,
-                        caption=caption,
+            # Atomic lock
+            worker_id = f"worker-{uuid.uuid4().hex[:4]}"
+            locked = await self.repository.lock_broadcast_job(job_id, worker_id)
+            if not locked:
+                # Already processed or locked
+                continue
+
+            # Resolve bot with failover
+            bot, bot_name, failover_note = await self.resolve_bot_for_target(target_role, target_cid)
+            if not bot:
+                err = f"Tidak ada bot terotorisasi untuk {target_name}"
+                await self.repository.mark_broadcast_job_failed(job_id, err)
+                failed_targets.append(f"{target_name} ({err})")
+                last_error = err
+                continue
+
+            published_msg_id: Optional[int] = None
+            send_error: Optional[Exception] = None
+
+            # Attempt 1: Copy message
+            if direct_chat_id and direct_message_id:
+                try:
+                    sent = await bot.copy_message(
+                        chat_id=target_cid,
+                        from_chat_id=direct_chat_id,
+                        message_id=direct_message_id,
                     )
                     published_msg_id = sent.message_id
-                else:
-                    sent = await bot.send_message(
-                        chat_id=poster_channel_id,
-                        text=caption or "Media Partner Poster",
-                    )
-                    published_msg_id = sent.message_id
-            except Exception as e:
-                logger.error(f"Direct media send to Channel Poster failed: {e}")
-                send_error = e
+                except Exception as e:
+                    logger.warning(f"Copy message to {target_name} failed: {e}")
+                    send_error = e
 
-        # Failover to Bot Cadangan if primary failed
-        if published_msg_id is None:
-            backup_bots = await self.repository.get_backup_bots()
-            for backup in backup_bots:
-                if backup.is_active:
-                    backup_bot_obj = self.get_bot_instance(backup.token)
-                    logger.info(f"Attempting failover to Bot Cadangan @{backup.bot_username} for poster #{poster.id}")
-                    try:
-                        caption = poster.caption or None
-                        photo_url = raw_data.get("photo_url")
+            # Attempt 2: Direct media send
+            if published_msg_id is None:
+                try:
+                    caption = poster.caption or None
+                    photo_url = raw_data.get("photo_url")
+                    video_url = raw_data.get("video_url")
+
+                    if poster.media_type == "photo" or photo_url:
                         photo_src = poster.file_id or (URLInputFile(photo_url) if photo_url else None)
                         if photo_src:
-                            sent = await backup_bot_obj.send_photo(
-                                chat_id=poster_channel_id,
-                                photo=photo_src,
-                                caption=caption,
-                            )
+                            sent = await bot.send_photo(chat_id=target_cid, photo=photo_src, caption=caption)
                             published_msg_id = sent.message_id
-                            bot_name = f"@{backup.bot_username} (Cadangan - Failover)"
-                            send_error = None
-                            break
-                    except Exception as fb_err:
-                        logger.warning(f"Backup bot failover also failed: {fb_err}")
-                        send_error = fb_err
+                    elif poster.media_type == "video" or video_url:
+                        video_src = poster.file_id or (URLInputFile(video_url) if video_url else None)
+                        if video_src:
+                            sent = await bot.send_video(chat_id=target_cid, video=video_src, caption=caption)
+                            published_msg_id = sent.message_id
+                    elif poster.media_type == "document" and poster.file_id:
+                        sent = await bot.send_document(chat_id=target_cid, document=poster.file_id, caption=caption)
+                        published_msg_id = sent.message_id
+                    else:
+                        sent = await bot.send_message(chat_id=target_cid, text=caption or "Media Partner Poster")
+                        published_msg_id = sent.message_id
+                except Exception as e:
+                    logger.error(f"Direct send to {target_name} failed: {e}")
+                    send_error = e
 
-        # Record outcome
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if published_msg_id is not None:
-            await self.repository.mark_broadcast_job_success(job_id)
-            await self.repository.record_broadcast_history(
-                BroadcastHistoryRecord(
-                    id=None,
-                    job_id=job_id,
-                    bot_name=bot_name,
-                    target_channel_id=poster_channel_id,
-                    target_channel_name="Channel Poster",
-                    content_type="Poster " + (poster.media_type or "Media").capitalize(),
-                    content_preview=f"Poster #{poster.id} ({poster.sender_name})",
-                    sent_at=now_str,
-                    status="SUCCESS",
-                    error_message=None,
-                    retry_count=1,
-                    published_message_id=published_msg_id,
+            # Attempt 3: Failover to Bot Cadangan if primary failed
+            if published_msg_id is None:
+                backup_bots = await self.repository.get_backup_bots()
+                for backup in backup_bots:
+                    if backup.is_active:
+                        backup_bot_obj = self.get_bot_instance(backup.token)
+                        logger.info(f"Failover to Bot Cadangan @{backup.bot_username} for {target_name}")
+                        try:
+                            caption = poster.caption or None
+                            photo_url = raw_data.get("photo_url")
+                            photo_src = poster.file_id or (URLInputFile(photo_url) if photo_url else None)
+                            if photo_src:
+                                sent = await backup_bot_obj.send_photo(chat_id=target_cid, photo=photo_src, caption=caption)
+                                published_msg_id = sent.message_id
+                                bot_name = f"@{backup.bot_username} (Cadangan)"
+                                send_error = None
+                                break
+                        except Exception as fb_err:
+                            send_error = fb_err
+
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            if published_msg_id is not None:
+                if first_published_id is None:
+                    first_published_id = published_msg_id
+                successful_targets.append(target_name)
+                await self.repository.mark_broadcast_job_success(job_id)
+                await self.repository.record_broadcast_history(
+                    BroadcastHistoryRecord(
+                        id=None,
+                        job_id=job_id,
+                        bot_name=bot_name,
+                        target_channel_id=target_cid,
+                        target_channel_name=target_name,
+                        content_type="Poster " + (poster.media_type or "Media").capitalize(),
+                        content_preview=f"Poster #{poster.id} ({poster.sender_name})",
+                        sent_at=now_str,
+                        status="SUCCESS",
+                        error_message=None,
+                        retry_count=1,
+                        published_message_id=published_msg_id,
+                    )
                 )
-            )
-            return True, published_msg_id, "SUCCESS"
+            else:
+                err_msg = str(send_error) if send_error else "Gagal mengirim ke channel"
+                last_error = err_msg
+                failed_targets.append(f"{target_name} ({err_msg})")
+                await self.repository.mark_broadcast_job_failed(job_id, err_msg)
+                await self.repository.record_broadcast_history(
+                    BroadcastHistoryRecord(
+                        id=None,
+                        job_id=job_id,
+                        bot_name=bot_name,
+                        target_channel_id=target_cid,
+                        target_channel_name=target_name,
+                        content_type="Poster " + (poster.media_type or "Media").capitalize(),
+                        content_preview=f"Poster #{poster.id} ({poster.sender_name})",
+                        sent_at=now_str,
+                        status="FAILED",
+                        error_message=err_msg,
+                        retry_count=1,
+                    )
+                )
+
+            await asyncio.sleep(0.5)
+
+        if successful_targets:
+            res_note = f"Berhasil disebarkan ke: {', '.join(successful_targets)}"
+            if failed_targets:
+                res_note += f" (Gagal pada: {', '.join(failed_targets)})"
+            return True, first_published_id, res_note
         else:
-            err_msg = str(send_error) if send_error else "Gagal menyebarkan ke Channel Poster."
-            await self.repository.mark_broadcast_job_failed(job_id, err_msg)
-            await self.repository.record_broadcast_history(
-                BroadcastHistoryRecord(
-                    id=None,
-                    job_id=job_id,
-                    bot_name=bot_name,
-                    target_channel_id=poster_channel_id,
-                    target_channel_name="Channel Poster",
-                    content_type="Poster " + (poster.media_type or "Media").capitalize(),
-                    content_preview=f"Poster #{poster.id} ({poster.sender_name})",
-                    sent_at=now_str,
-                    status="FAILED",
-                    error_message=err_msg,
-                    retry_count=1,
-                )
-            )
-            return False, None, err_msg
+            err_note = f"Gagal menyebarkan ke {', '.join(failed_targets)}: {last_error}"
+            return False, None, err_note
 
     # ------------------ CHANNEL 1 & CHANNEL 2 MESSAGE DISPATCH (SECTION C) ------------------
     async def broadcast_message_to_channels(

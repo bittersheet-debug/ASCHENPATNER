@@ -69,6 +69,8 @@ from mediapatner.keyboards.admin_kb import (
     get_broadcast_history_keyboard,
     get_bot_management_keyboard,
     get_bot_detail_keyboard,
+    get_poster_publish_target_keyboard,
+    get_target_selection_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -1287,11 +1289,22 @@ async def handle_poster_detail(
     link_display = poster.source_link if poster.source_link else "(Direct Upload/Forward)"
     caption_preview = (poster.caption[:150] + "...") if poster.caption and len(poster.caption) > 150 else (poster.caption or "-")
 
+    raw = poster.get_parsed_raw()
+    dest = raw.get("target_destination", "")
+    target_labels = {
+        "main": "Hanya Channel Utama 📢",
+        "poster": "Hanya Channel Sebar 🖼️",
+        "both": "Utama & Sebar 🌐",
+        "all": "Semua Saluran ⚡",
+    }
+    target_label = target_labels.get(dest, "Sesuai Pengaturan Otomatis")
+
     text = (
         f"𓄲 POSTER DETAIL #{poster.id} 𓈒\n\n"
         f"➤ *Pengirim:* {poster.sender_name} (`{poster.sender_id}`)\n"
         f"➤ *Username:* @{poster.sender_username or 'none'}\n"
         f"➤ *Status:* `{poster.status}`\n"
+        f"➤ *Target Sebar:* `{target_label}`\n"
         f"➤ *Jadwal:* {poster.slot_day}, {poster.slot_date} ({poster.slot_time} WIB)\n"
         f"➤ *Link:* {link_display}\n"
         f"➤ *Tipe Media:* `{poster.media_type or 'text'}`\n"
@@ -1305,7 +1318,7 @@ async def handle_poster_detail(
 
     text += f"\n📝 *Caption:*\n_{caption_preview}_\n"
 
-    keyboard = get_poster_detail_keyboard(poster.id, poster.status, return_menu, page)
+    keyboard = get_poster_detail_keyboard(poster.id, poster.status, return_menu, page, target_label)
     await callback.message.edit_text(text=text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
 
@@ -1353,7 +1366,173 @@ async def handle_manual_publish(
     await handle_admin_overview_callback(callback, repository, settings, state)
 
 
-@router.callback_query(F.data.startswith("poster_act:delete:"))
+@router.callback_query(F.data.startswith("poster_act:choose_channel:"))
+async def handle_choose_publish_channel(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    poster_id = int(callback.data.split(":")[2])
+    poster = await repository.get_poster(poster_id)
+    if not poster:
+        await callback.answer("Poster tidak ditemukan.", show_alert=True)
+        return
+
+    text = (
+        f"🚀 *SEBAR DULUAN POSTER #{poster.id}*\n\n"
+        "Pilih saluran tujuan penyebaran poster ini:\n\n"
+        "➤ *Channel Utama:* `-1002123283346`\n"
+        "➤ *Channel Sebar/Poster:* `-1003512801822`\n"
+        "➤ *Utama & Sebar:* Disebarkan ke kedua saluran sekaligus\n"
+        "➤ *Semua Saluran:* Disebarkan ke semua saluran aktif (Multi-Channel)\n\n"
+        "ᵎ!ᵎ _Pilih target saluran di bawah:_"
+    )
+    kb = get_poster_publish_target_keyboard(poster.id)
+    await callback.message.edit_text(text=text, parse_mode="Markdown", reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("poster_publish_to:"))
+async def handle_publish_to_specific_channel(
+    callback: CallbackQuery,
+    repository: Repository,
+    publisher_service: PublisherService,
+    settings: Settings,
+    state: FSMContext,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    poster_id = int(parts[1])
+    target = parts[2]  # 'main', 'poster', 'both', 'all'
+
+    poster = await repository.get_poster(poster_id)
+    if not poster:
+        await callback.answer("Poster tidak ditemukan.", show_alert=True)
+        return
+
+    dest_labels = {
+        "main": "Channel Utama",
+        "poster": "Channel Sebar (Poster)",
+        "both": "Channel Utama & Channel Sebar",
+        "all": "Semua Saluran Aktif",
+    }
+    dest_name = dest_labels.get(target, target)
+    await callback.answer(f"Memproses penyebaran ke {dest_name}...")
+
+    await repository.mark_publishing(poster.id)
+    success = await publisher_service.publish_poster(poster, target_destination=target)
+    if success:
+        await repository.log_activity(
+            action="MANUAL_PUBLISH",
+            poster_id=poster.id,
+            user_id=user.id,
+            details=f"Manually published to {dest_name} by Admin {user.full_name}",
+        )
+        await callback.message.answer(
+            f"✅ *Sukses!* Poster `#{poster.id}` berhasil disebarkan ke *{dest_name}*.",
+            parse_mode="Markdown",
+        )
+    else:
+        await callback.message.answer(
+            f"❌ *Gagal / Ditahan!* Publikasi poster `#{poster.id}` ke {dest_name} tidak dapat diselesaikan. Pastikan channel tujuan berstatus ON.",
+            parse_mode="Markdown",
+        )
+
+    await handle_admin_overview_callback(callback, repository, settings, state)
+
+
+@router.callback_query(F.data.startswith("poster_act:set_target_menu:"))
+async def handle_poster_set_target_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    poster_id = int(callback.data.split(":")[2])
+    poster = await repository.get_poster(poster_id)
+    if not poster:
+        await callback.answer("Poster tidak ditemukan.", show_alert=True)
+        return
+
+    raw = poster.get_parsed_raw()
+    current_target = raw.get("target_destination", "")
+
+    text = (
+        f"🎯 *ATUR TARGET PENYEBARAN POSTER #{poster.id}*\n\n"
+        "Pilih saluran ke mana poster ini akan secara otomatis disebarkan saat jadwalnya tiba:\n\n"
+        "1. *Hanya Channel Utama:* `-1002123283346`\n"
+        "2. *Hanya Channel Sebar (Poster):* `-1003512801822`\n"
+        "3. *Channel Utama & Channel Sebar:* Keduanya\n"
+        "4. *Semua Saluran Aktif:* Seluruh channel yang ON\n\n"
+        "ᵎ!ᵎ _Pilih target saluran di bawah:_"
+    )
+    kb = get_target_selection_keyboard(current_target, context="poster", poster_id=poster_id)
+    await callback.message.edit_text(text=text, parse_mode="Markdown", reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("poster_set_target:"))
+async def handle_save_poster_target(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    parts = callback.data.split(":")
+    poster_id = int(parts[1])
+    target = parts[2]
+
+    await repository.set_poster_target(poster_id, target)
+    target_labels = {
+        "main": "Hanya Channel Utama",
+        "poster": "Hanya Channel Sebar",
+        "both": "Utama & Sebar",
+        "all": "Semua Saluran Aktif",
+    }
+    await callback.answer(f"Target poster disimpan: {target_labels.get(target, target)}", show_alert=True)
+
+    # Return to poster detail
+    poster = await repository.get_poster(poster_id)
+    link_display = poster.source_link if poster.source_link else "(Direct Upload/Forward)"
+    caption_preview = (poster.caption[:150] + "...") if poster.caption and len(poster.caption) > 150 else (poster.caption or "-")
+    tgt_lbl = target_labels.get(target, target)
+
+    text = (
+        f"𓄲 POSTER DETAIL #{poster.id} 𓈒\n\n"
+        f"➤ *Pengirim:* {poster.sender_name} (`{poster.sender_id}`)\n"
+        f"➤ *Username:* @{poster.sender_username or 'none'}\n"
+        f"➤ *Status:* `{poster.status}`\n"
+        f"➤ *Target Sebar:* `{tgt_lbl}`\n"
+        f"➤ *Jadwal:* {poster.slot_day}, {poster.slot_date} ({poster.slot_time} WIB)\n"
+        f"➤ *Link:* {link_display}\n"
+        f"➤ *Tipe Media:* `{poster.media_type or 'text'}`\n"
+        f"➤ *Percobaan Retry:* `{poster.retry_count}`\n"
+    )
+    if poster.failure_reason:
+        text += f"➤ *Alasan Gagal:* `{poster.failure_reason}`\n"
+    if poster.published_at:
+        text += f"➤ *Diterbitkan pada:* `{poster.published_at}`\n"
+    text += f"\n📝 *Caption:*\n_{caption_preview}_\n"
+
+    kb = get_poster_detail_keyboard(poster.id, poster.status, "keep", 0, tgt_lbl)
+    await callback.message.edit_text(text=text, parse_mode="Markdown", reply_markup=kb)
 async def handle_delete_poster(
     callback: CallbackQuery,
     repository: Repository,
@@ -1537,6 +1716,14 @@ async def render_channel_control_text(repository: Repository) -> str:
     ch1_display_id = f"`{channels.channel_1_id}`" if channels.channel_1_id else "_(Belum Diatur)_"
     ch2_display_id = f"`{channels.channel_2_id}`" if channels.channel_2_id else "_(Belum Diatur)_"
 
+    target_labels = {
+        "main": "Hanya Channel Utama 📢",
+        "poster": "Hanya Channel Sebar (Poster) 🖼️",
+        "both": "Channel Utama & Sebar (Keduanya) 🌐",
+        "all": "Semua Saluran Aktif (Multi-Channel) ⚡",
+    }
+    target_display = target_labels.get(channels.auto_publish_target, "Utama & Sebar 🌐")
+
     return (
         "𓄲 *KONTROL SALURAN & MULTI-BOT DISPATCHER* 𓈒\n"
         "ASCHEN EVENT ORGANIZER\n\n"
@@ -1549,6 +1736,8 @@ async def render_channel_control_text(repository: Repository) -> str:
         f"   └ Status: {status_badge(channels.channel_1_enabled, channels.channel_1_id)}\n"
         f"➤ *Channel 2:* {ch2_display_id}\n"
         f"   └ Status: {status_badge(channels.channel_2_enabled, channels.channel_2_id)}\n\n"
+        "🎯 *TARGET PENYEBARAN OTOMATIS*\n"
+        f"➤ *Mode Sebar Default:* *{target_display}*\n\n"
         "🤖 *PEMBAGIAN TUGAS BOT*\n"
         f"➤ *Bot Channel 1:* {ch1_name}\n"
         f"➤ *Bot Channel 2:* {ch2_name}\n"
@@ -1583,6 +1772,73 @@ async def handle_channel_control_menu(
     except Exception:
         await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
+
+
+@router.callback_query(F.data == "chan_menu:target_select")
+async def handle_global_target_select_menu(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    current_target = await repository.get_auto_publish_target()
+    text = (
+        "🎯 *PILIH TARGET PENYEBARAN OTOMATIS (GLOBAL)*\n\n"
+        "Atur saluran default ke mana setiap poster akan secara otomatis disebarkan saat jadwalnya tiba:\n\n"
+        "➤ *Hanya Channel Utama:* `-1002123283346`\n"
+        "➤ *Hanya Channel Sebar (Poster):* `-1003512801822`\n"
+        "➤ *Channel Utama & Channel Sebar:* Keduanya sekaligus\n"
+        "➤ *Semua Saluran Aktif:* Seluruh channel yang berstatus ON\n\n"
+        "ᵎ!ᵎ _Pilih target sebar otomatis di bawah:_"
+    )
+    kb = get_target_selection_keyboard(current_target, context="global")
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("chan_set_target:"))
+async def handle_save_global_target(
+    callback: CallbackQuery,
+    repository: Repository,
+    settings: Settings,
+):
+    user = callback.from_user
+    if not user or not is_admin_check(user.id, settings):
+        await callback.answer("Akses ditolak.", show_alert=True)
+        return
+
+    target = callback.data.split(":")[1]
+    await repository.set_auto_publish_target(target)
+    target_labels = {
+        "main": "Hanya Channel Utama",
+        "poster": "Hanya Channel Sebar",
+        "both": "Channel Utama & Sebar (Keduanya)",
+        "all": "Semua Saluran Aktif",
+    }
+    lbl = target_labels.get(target, target)
+    await callback.answer(f"Target sebar otomatis global diubah: {lbl}", show_alert=True)
+
+    await repository.log_activity(
+        action="CONFIG_CHANGE",
+        poster_id=None,
+        user_id=user.id,
+        details=f"Global auto_publish_target updated to {target}",
+    )
+
+    channels = await repository.get_channel_settings()
+    text = await render_channel_control_text(repository)
+    kb = get_channel_control_keyboard(channels)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("chan_toggle:"))

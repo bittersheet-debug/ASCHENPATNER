@@ -375,18 +375,27 @@ def get_poster_list_keyboard(
 
 
 def get_poster_detail_keyboard(
-    poster_id: int, status: str, return_menu: str, page: int
+    poster_id: int, status: str, return_menu: str, page: int, target_label: str = ""
 ) -> InlineKeyboardMarkup:
-    """Management action buttons for a single poster."""
+    """Management action buttons for a single poster with channel selection."""
     keyboard = []
 
-    # Publish now button (if not already published)
+    # Publish now buttons with channel selection
     if status in ("KEEP", "SCHEDULED", "FAILED"):
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text="🚀 Sebar Duluan ke @ASCHENEO",
-                    callback_data=f"poster_act:publish:{poster_id}",
+                    text="🚀 Sebar Duluan (Pilih Saluran)",
+                    callback_data=f"poster_act:choose_channel:{poster_id}",
+                )
+            ]
+        )
+        display_tgt = target_label if target_label else "Sesuai Pengaturan Otomatis"
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🎯 Target Saluran: [{display_tgt}]",
+                    callback_data=f"poster_act:set_target_menu:{poster_id}",
                 )
             ]
         )
@@ -434,6 +443,90 @@ def get_poster_detail_keyboard(
     )
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_poster_publish_target_keyboard(poster_id: int) -> InlineKeyboardMarkup:
+    """Interactive inline keyboard to choose destination channel when publishing immediately."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📢 Sebar ke Channel Utama (-1002123283346)",
+                    callback_data=f"poster_publish_to:{poster_id}:main",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🖼️ Sebar ke Channel Sebar/Poster (-1003512801822)",
+                    callback_data=f"poster_publish_to:{poster_id}:poster",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🌐 Sebar ke Utama & Sebar (Keduanya)",
+                    callback_data=f"poster_publish_to:{poster_id}:both",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚡ Sebar ke Semua Saluran Aktif (Multi-Channel)",
+                    callback_data=f"poster_publish_to:{poster_id}:all",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Batal / Kembali",
+                    callback_data=f"poster_detail:{poster_id}:keep:0",
+                )
+            ],
+        ]
+    )
+
+
+def get_target_selection_keyboard(
+    current_target: str, context: str = "global", poster_id: Optional[int] = None
+) -> InlineKeyboardMarkup:
+    """Inline keyboard for setting the auto-publish target (global or per-poster)."""
+    def mark(t: str) -> str:
+        return " (Dipilih ✅)" if t == current_target else ""
+
+    prefix = f"poster_set_target:{poster_id}" if context == "poster" else "chan_set_target"
+    back_cb = f"poster_detail:{poster_id}:keep:0" if context == "poster" else "admin_menu:channel_control"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📢 Hanya Channel Utama{mark('main')}",
+                    callback_data=f"{prefix}:main",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🖼️ Hanya Channel Sebar (Poster){mark('poster')}",
+                    callback_data=f"{prefix}:poster",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"🌐 Channel Utama & Channel Sebar{mark('both')}",
+                    callback_data=f"{prefix}:both",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"⚡ Semua Channel Aktif (Multi-Channel){mark('all')}",
+                    callback_data=f"{prefix}:all",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔙 Kembali",
+                    callback_data=back_cb,
+                )
+            ],
+        ]
+    )
 
 
 def get_reschedule_options_keyboard(poster_id: int) -> InlineKeyboardMarkup:
@@ -553,11 +646,25 @@ def get_channel_control_keyboard(channels: ChannelSettings) -> InlineKeyboardMar
         else InlineKeyboardButton(text="🟢 AKTIFKAN CHANNEL POSTER", callback_data="chan_toggle:poster:on")
     )
 
+    target_labels = {
+        "main": "Hanya Utama 📢",
+        "poster": "Hanya Sebar 🖼️",
+        "both": "Utama & Sebar 🌐",
+        "all": "Semua Saluran ⚡",
+    }
+    tgt_text = target_labels.get(channels.auto_publish_target, "Utama & Sebar 🌐")
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [btn_ch1],
             [btn_ch2],
             [btn_poster],
+            [
+                InlineKeyboardButton(
+                    text=f"🎯 Target Sebar Otomatis: [{tgt_text}]",
+                    callback_data="chan_menu:target_select",
+                )
+            ],
             [
                 InlineKeyboardButton(text="🔄 SINKRONISASI BOT", callback_data="admin_act:sync_bots"),
                 InlineKeyboardButton(text="⚙️ PENGATURAN CHANNEL", callback_data="admin_menu:chan_settings"),
